@@ -108,6 +108,11 @@ def main() -> None:
             host=args.host,
             port=port,
             reload=args.reload,
+            # Plain asyncio, NOT uvloop: inspect-ai's sync read_eval_log goes
+            # through nest_asyncio.apply(), which cannot patch uvloop loops
+            # ("Can't patch loop of type uvloop.Loop" → 500 on .eval opens).
+            # uvloop's throughput is irrelevant for a localhost viewer.
+            loop="asyncio",
         )
     finally:
         instances.unregister()
