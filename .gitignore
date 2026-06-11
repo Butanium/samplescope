@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+dist/
+*.egg-info/
+
+# Web
+web/node_modules/
+web/dist/
+web/tsconfig.tsbuildinfo
+
+# Built frontend staged into the package by the hatch build hook
+src/dataset_viewer/web_dist/
+
+# Local state (never written here in normal operation — state lives in
+# ~/.local/state/dataset-viewer — but guard against accidents)
+.cache/
+
+.env

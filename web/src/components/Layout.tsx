@@ -1,0 +1,199 @@
+import { useEffect, useState } from "react";
+import { usePref } from "../lib/prefs";
+import DatasetTree from "./DatasetTree";
+import DatasetHeader from "./DatasetHeader";
+import ChatRowView from "./views/ChatRowView";
+import TableRowView from "./views/TableRowView";
+import MetricsView from "./views/MetricsView";
+import EvalLogView from "./views/EvalLogView";
+import JsonTreeView from "./views/JsonTreeView";
+import SqlView from "./views/SqlView";
+import ChatDrawer from "./ChatDrawer";
+import SqlPad from "./SqlPad";
+import MarkPanel from "./MarkPanel";
+import JudgePanel from "./JudgePanel";
+import HighlightsPanel from "./HighlightsPanel";
+import HelpPanel from "./HelpPanel";
+import PlotPanel from "./PlotPanel";
+import ThemeToggle from "./ThemeToggle";
+import { useViewerState } from "../lib/state";
+import { useUrlSync } from "../lib/url";
+import { api } from "../lib/api";
+import { nextIdx, prevIdx } from "../lib/nav";
+import { MessageSquare, Database, Star, Scale, Terminal, HelpCircle, Highlighter, Image as ImageIcon } from "lucide-react";
+
+export default function Layout() {
+  const v = useViewerState();
+  const { url, setDrawer } = useUrlSync();
+  const [treeWidth, setTreeWidth] = useState(280);
+  // Persist per browser/profile (synced cross-browser via the prefs backend).
+  const [drawerWidth, setDrawerWidth] = usePref<number>("drawerWidth", 480);
+  const drawer = url.drawer;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      // Modifier-bearing keystrokes belong to the browser / OS (Ctrl+C copy,
+      // Cmd+L address bar, Alt+arrow history nav, …) — never hijack them.
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const NEXT = ["j", "ArrowDown", "ArrowRight"];
+      const PREV = ["k", "ArrowUp", "ArrowLeft"];
+      if (NEXT.includes(e.key)) {
+        e.preventDefault();
+        const target = nextIdx(v.row_idx);
+        api.goto(target != null ? target : Math.min(v.row_count - 1, v.row_idx + 1));
+      } else if (PREV.includes(e.key)) {
+        e.preventDefault();
+        const target = prevIdx(v.row_idx);
+        api.goto(target != null ? target : Math.max(0, v.row_idx - 1));
+      } else if (e.key === "s") api.shuffle();
+      else if (e.key === "c") {
+        const opening = drawer !== "chat";
+        setDrawer(opening ? "chat" : "none");
+        if (opening) {
+          // Focus the textarea once it mounts. 50ms is well past React's
+          // commit + the drawer's transition. The selector is scoped to
+          // visible textareas (inactive tabs render with `display: none`,
+          // so :not([hidden]) lets the active tab win).
+          setTimeout(() => {
+            document
+              .querySelector<HTMLTextAreaElement>("[data-chat-input]")
+              ?.focus();
+          }, 50);
+        }
+      }
+      else if (e.key === "m") setDrawer(drawer === "marks" ? "none" : "marks");
+      else if (e.key === "g") setDrawer(drawer === "judges" ? "none" : "judges");
+      else if (e.key === "h") setDrawer(drawer === "highlights" ? "none" : "highlights");
+      else if (e.key === "p") setDrawer(drawer === "plots" ? "none" : "plots");
+      else if (e.key === "/") {
+        e.preventDefault();
+        document.getElementById("filter-input")?.focus();
+      } else if (e.key === "\\") setDrawer(drawer === "sql" ? "none" : "sql");
+      else if (e.key === "?") setDrawer(drawer === "help" ? "none" : "help");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [v.row_idx, v.row_count, drawer, setDrawer]);
+
+  return (
+    <div className="flex h-full w-full">
+      <aside style={{ width: treeWidth }} className="shrink-0 border-r border-zinc-200 dark:border-zinc-800 overflow-hidden">
+        <DatasetTree />
+      </aside>
+      <div
+        className="w-1 cursor-col-resize bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-400 dark:hover:bg-zinc-600"
+        onMouseDown={(e) => {
+          const start = e.clientX;
+          const startW = treeWidth;
+          const onMove = (ev: MouseEvent) => setTreeWidth(Math.max(180, Math.min(600, startW + ev.clientX - start)));
+          const onUp = () => {
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup", onUp);
+          };
+          window.addEventListener("mousemove", onMove);
+          window.addEventListener("mouseup", onUp);
+        }}
+      />
+      <main className="flex-1 flex flex-col min-w-0">
+        <DatasetHeader />
+        <div className="flex-1 min-h-0 flex">
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <ViewSwitch />
+          </div>
+          {drawer !== "none" && (
+            <>
+              <div
+                className="w-1 cursor-col-resize bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-400 dark:hover:bg-zinc-600 shrink-0"
+                onMouseDown={(e) => {
+                  const start = e.clientX;
+                  const startW = drawerWidth;
+                  const onMove = (ev: MouseEvent) =>
+                    setDrawerWidth(Math.max(280, Math.min(1100, startW - (ev.clientX - start))));
+                  const onUp = () => {
+                    window.removeEventListener("mousemove", onMove);
+                    window.removeEventListener("mouseup", onUp);
+                  };
+                  window.addEventListener("mousemove", onMove);
+                  window.addEventListener("mouseup", onUp);
+                }}
+                title="drag to resize"
+              />
+              <aside
+                style={{ width: drawerWidth }}
+                className="shrink-0 border-l border-zinc-200 dark:border-zinc-800 overflow-hidden flex flex-col"
+              >
+                {drawer === "chat" && <ChatDrawer onClose={() => setDrawer("none")} />}
+                {drawer === "marks" && <MarkPanel onClose={() => setDrawer("none")} />}
+                {drawer === "judges" && <JudgePanel onClose={() => setDrawer("none")} />}
+                {drawer === "highlights" && <HighlightsPanel onClose={() => setDrawer("none")} />}
+                {drawer === "sql" && <SqlPad onClose={() => setDrawer("none")} />}
+                {drawer === "help" && <HelpPanel onClose={() => setDrawer("none")} />}
+                {drawer === "plots" && <PlotPanel onClose={() => setDrawer("none")} />}
+              </aside>
+            </>
+          )}
+        </div>
+      </main>
+      <div
+        className="fixed bottom-3 flex flex-col gap-2 z-30 transition-[right] duration-150"
+        style={{ right: drawer === "none" ? 12 : drawerWidth + 16 }}
+      >
+        <DrawerToggle icon={<MessageSquare size={18} />} active={drawer === "chat"} title="Chat (c)" onClick={() => setDrawer(drawer === "chat" ? "none" : "chat")} />
+        <DrawerToggle icon={<Star size={18} />} active={drawer === "marks"} title="Marks (m)" onClick={() => setDrawer(drawer === "marks" ? "none" : "marks")} />
+        <DrawerToggle icon={<Scale size={18} />} active={drawer === "judges"} title="Judges (g)" onClick={() => setDrawer(drawer === "judges" ? "none" : "judges")} />
+        <DrawerToggle icon={<Highlighter size={18} />} active={drawer === "highlights"} title="Highlights (h)" onClick={() => setDrawer(drawer === "highlights" ? "none" : "highlights")} />
+        <DrawerToggle icon={<ImageIcon size={18} />} active={drawer === "plots"} title="Plots (p)" onClick={() => setDrawer(drawer === "plots" ? "none" : "plots")} />
+        <DrawerToggle icon={<Terminal size={18} />} active={drawer === "sql"} title="SQL (\\)" onClick={() => setDrawer(drawer === "sql" ? "none" : "sql")} />
+        <DrawerToggle icon={<HelpCircle size={18} />} active={drawer === "help"} title="Help (?)" onClick={() => setDrawer(drawer === "help" ? "none" : "help")} />
+        <div className="mt-1 self-center">
+          <ThemeToggle />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DrawerToggle({ icon, active, title, onClick }: {
+  icon: React.ReactNode; active: boolean; title: string; onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={"w-10 h-10 rounded-full border flex items-center justify-center transition " +
+        (active
+          ? "bg-emerald-500 text-zinc-900 border-emerald-400"
+          : "bg-zinc-100 dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-800")}
+    >
+      {icon}
+    </button>
+  );
+}
+
+function ViewSwitch() {
+  const v = useViewerState();
+  if (!v.dataset_path) {
+    return (
+      <div className="h-full w-full flex items-center justify-center text-zinc-500 text-sm">
+        <div className="text-center">
+          <Database size={48} className="mx-auto mb-3 opacity-40" />
+          <div>Pick a dataset on the left.</div>
+          <div className="mt-2 text-xs opacity-70">
+            j/k/↑/↓/←/→ navigate · s shuffle · / filter · m marks · g judges · h highlights · p plots · c chat · \\ SQL · ? help
+          </div>
+        </div>
+      </div>
+    );
+  }
+  // SQL view mode (C) overrides the dataset's native view kind.
+  if (v.sql_mode === "view") return <SqlView />;
+  switch (v.view_kind) {
+    case "chat": return <ChatRowView />;
+    case "table": return <TableRowView />;
+    case "metrics": return <MetricsView />;
+    case "eval_log": return <EvalLogView />;
+    default: return <JsonTreeView />;
+  }
+}

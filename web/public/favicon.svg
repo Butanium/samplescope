@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Stacked-rows mark: a tribute to the central object of the app.
+       Emerald accent bar on the left echoes the "active row" rail used
+       across the views; the rows themselves widen at the top to suggest
+       the active selection at the head of a list.
+       Background is transparent so it sits cleanly on light and dark
+       browser chrome. -->
+  <rect x="4"  y="6"  width="2"  height="20" rx="1" fill="#10b981"/>
+  <rect x="9"  y="6"  width="19" height="4"  rx="1" fill="#10b981"/>
+  <rect x="9"  y="12" width="15" height="3"  rx="1" fill="#71717a" opacity="0.7"/>
+  <rect x="9"  y="17" width="17" height="3"  rx="1" fill="#71717a" opacity="0.55"/>
+  <rect x="9"  y="22" width="12" height="3"  rx="1" fill="#71717a" opacity="0.4"/>
+</svg>
