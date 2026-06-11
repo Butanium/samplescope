@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useChatTabs } from "../lib/chatTabs";
+import { usePref } from "../lib/prefs";
 import { PanelHeader } from "./MarkPanel";
 import ChatTab from "./ChatTab";
 import TabContextMenu, { type ContextMenuAnchor } from "./ui/TabContextMenu";
@@ -28,6 +29,10 @@ export default function ChatDrawer({ onClose }: { onClose: () => void }) {
   // stay read-only; everything else is fully interactive.
   const [unresumable, setUnresumable] = useState<Set<string>>(new Set());
   const initRef = useRef(false);
+  // Last model class the user picked (in any tab); new sessions inherit it.
+  const [chatModel] = usePref<string>("chatModel", "default");
+  const createWithModel = () =>
+    api.createSession(undefined, "acceptEdits", chatModel === "default" ? undefined : chatModel);
 
   // claude-agent-sdk ships by default but can still fail to import server-side;
   // don't spawn a session against a server that will 501 it.
@@ -47,7 +52,7 @@ export default function ChatDrawer({ onClose }: { onClose: () => void }) {
     initRef.current = true;
     (async () => {
       if (tabs.length === 0) {
-        const s = await api.createSession();
+        const s = await createWithModel();
         addTab({ id: s.session_id, createdAt: Date.now() });
       } else {
         // Best-effort silent re-attach for each restored tab. Failures
@@ -67,7 +72,7 @@ export default function ChatDrawer({ onClose }: { onClose: () => void }) {
   }, [health]);
 
   async function newTab() {
-    const s = await api.createSession();
+    const s = await createWithModel();
     addTab({ id: s.session_id, createdAt: Date.now() });
   }
 

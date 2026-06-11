@@ -138,6 +138,12 @@ def _init_state_schema(conn: duckdb.DuckDBPyConnection) -> None:
         conn.execute("ALTER TABLE state.chat_sessions ADD COLUMN sdk_session_id VARCHAR")
     except duckdb.CatalogException:
         pass
+    # Model class chosen for the session (haiku/sonnet/opus/fable; NULL = CLI
+    # default). Stored so resuming an old session keeps its model.
+    try:
+        conn.execute("ALTER TABLE state.chat_sessions ADD COLUMN model VARCHAR")
+    except duckdb.CatalogException:
+        pass
     conn.execute("""
         CREATE TABLE IF NOT EXISTS state.chat_messages (
             session_id VARCHAR NOT NULL,

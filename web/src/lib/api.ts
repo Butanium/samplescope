@@ -120,9 +120,9 @@ export const api = {
   // state
   state: () => j<ViewerState>("/api/state"),
   // chat
-  createSession: (label?: string, permission_mode = "acceptEdits") =>
-    j<{ session_id: string; permission_mode: string }>("/api/chat/sessions", {
-      method: "POST", body: JSON.stringify({ label, permission_mode }),
+  createSession: (label?: string, permission_mode = "acceptEdits", model?: string) =>
+    j<{ session_id: string; permission_mode: string; model: string | null }>("/api/chat/sessions", {
+      method: "POST", body: JSON.stringify({ label, permission_mode, model }),
     }),
   closeSession: (id: string) =>
     j<unknown>(`/api/chat/sessions/${id}`, { method: "DELETE" }),
@@ -143,6 +143,10 @@ export const api = {
   setPermissionMode: (id: string, mode: string) =>
     j<{ ok: true; permission_mode: string }>(`/api/chat/sessions/${id}/permission_mode`, {
       method: "POST", body: JSON.stringify({ permission_mode: mode }),
+    }),
+  setChatModel: (id: string, model: string | null) =>
+    j<{ ok: true; model: string | null }>(`/api/chat/sessions/${id}/model`, {
+      method: "POST", body: JSON.stringify({ model }),
     }),
   listSessions: () =>
     j<{ id: string; label: string | null; created_at: string; live: boolean }[]>("/api/chat/sessions"),

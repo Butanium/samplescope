@@ -73,6 +73,10 @@ def _fork_session_jsonl(sdk_session_id: str) -> str | None:
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
+# Model classes the UI can pick from. Aliases resolve to the latest model of
+# each class inside the Claude Code CLI, so this list stays version-agnostic.
+ALLOWED_MODELS = ("haiku", "sonnet", "opus", "fable")
+
 CLI_INTRO = """\
 A `viewer` CLI is available via Bash; it drives the samplescope viewer the user is looking at.
 Prefer it for any dataset operation:
@@ -151,6 +155,7 @@ class Session:
     client: ClaudeSDKClient
     queue: asyncio.Queue
     permission_mode: str
+    model: str | None = None
     listener_task: asyncio.Task | None = None
     in_turn: bool = False
     seq: int = 0
@@ -219,11 +224,17 @@ def _persist(session_id: str, payload: dict) -> int:
     return seq
 
 
-def _build_options(permission_mode: str, resume: str | None = None) -> ClaudeAgentOptions:
+def _build_options(
+    permission_mode: str,
+    resume: str | None = None,
+    model: str | None = None,
+) -> ClaudeAgentOptions:
     """Shared option construction for fresh + resumed sessions."""
     kwargs: dict[str, Any] = dict(
         cwd=str(SETTINGS.root),
         permission_mode=permission_mode,
+        # None ⇒ the CLI's configured default model.
+        model=model or SETTINGS.chat_model,
         # The chat-spawned `viewer` CLI must target *this* server instance —
         # not whatever cwd-based discovery would pick. Merged into the
         # subprocess env by the SDK (inherits the rest of os.environ).
@@ -251,17 +262,25 @@ def _build_options(permission_mode: str, resume: str | None = None) -> ClaudeAge
         # the limit only caps individual messages, not session memory.
         max_buffer_size=64 * 1024 * 1024,
     )
+    # The SDK ships a bundled CLI and prefers it over $PATH, but it lags the
+    # released Claude Code (e.g. its 2.1.162 rejects the `fable` alias that
+    # 2.1.170 accepts). Prefer the user's auto-updating global install.
+    system_cli = shutil.which("claude")
+    if system_cli:
+        kwargs["cli_path"] = system_cli
     if resume:
         kwargs["resume"] = resume
     return ClaudeAgentOptions(**kwargs)
 
 
-async def _spawn_session(sid: str, permission_mode: str, resume: str | None = None) -> Session:
+async def _spawn_session(
+    sid: str, permission_mode: str, resume: str | None = None, model: str | None = None
+) -> Session:
     """Allocate a Session: build options, connect the SDK, start the listener."""
-    client = ClaudeSDKClient(options=_build_options(permission_mode, resume=resume))
+    client = ClaudeSDKClient(options=_build_options(permission_mode, resume=resume, model=model))
     await client.connect()
     queue: asyncio.Queue = asyncio.Queue(maxsize=512)
-    sess = Session(id=sid, client=client, queue=queue, permission_mode=permission_mode)
+    sess = Session(id=sid, client=client, queue=queue, permission_mode=permission_mode, model=model)
     sess.listener_task = asyncio.create_task(_listen(sess))
     SESSIONS[sid] = sess
     return sess
@@ -320,14 +339,17 @@ async def create_session(payload: dict | None = None) -> dict:
     payload = payload or {}
     permission_mode = payload.get("permission_mode", "acceptEdits")
     label = payload.get("label")
+    model = payload.get("model") or None
+    if model is not None and model not in ALLOWED_MODELS:
+        raise HTTPException(400, f"invalid model: {model!r} (allowed: {ALLOWED_MODELS})")
     sid = uuid.uuid4().hex[:12]
-    await _spawn_session(sid, permission_mode)
+    await _spawn_session(sid, permission_mode, model=model)
     with cursor() as cur:
         cur.execute(
-            "INSERT INTO state.chat_sessions(session_id, label) VALUES (?, ?)",
-            [sid, label],
+            "INSERT INTO state.chat_sessions(session_id, label, model) VALUES (?, ?, ?)",
+            [sid, label, model],
         )
-    return {"session_id": sid, "permission_mode": permission_mode}
+    return {"session_id": sid, "permission_mode": permission_mode, "model": model}
 
 
 @router.post("/sessions/{sid}/resume")
@@ -349,20 +371,21 @@ async def resume_session(sid: str) -> dict:
         )
     with cursor() as cur:
         row = cur.execute(
-            "SELECT 1 FROM state.chat_sessions WHERE session_id = ?",
+            "SELECT model FROM state.chat_sessions WHERE session_id = ?",
             [sid],
         ).fetchone()
     if row is None:
         raise HTTPException(404, f"session {sid} not found in state.chat_sessions")
+    model = row[0]
     # The SDK does its own JSONL copy under the hood (see session_resume.py
     # in claude-agent-sdk); we just hand it the canonical id and let it
     # snapshot a working copy. The runtime UUID it picks goes into a fresh
     # project-dir JSONL automatically; we don't track that one.
     try:
-        await _spawn_session(sid, permission_mode="acceptEdits", resume=sdk_id)
+        await _spawn_session(sid, permission_mode="acceptEdits", resume=sdk_id, model=model)
     except Exception as e:
         raise HTTPException(500, f"resume failed: {type(e).__name__}: {e}")
-    return {"ok": True, "resumed": True, "sdk_session_id": sdk_id}
+    return {"ok": True, "resumed": True, "sdk_session_id": sdk_id, "model": model}
 
 
 async def _listen(sess: Session) -> None:
@@ -375,8 +398,11 @@ async def _listen(sess: Session) -> None:
     """
     try:
         async for msg in sess.client.receive_messages():
-            # First non-result content after the previous turn ended ⇒ new turn began.
-            if not sess.in_turn and not isinstance(msg, ResultMessage):
+            # First non-result content after the previous turn ended ⇒ new turn
+            # began. SystemMessages don't count: the SDK emits an `init` system
+            # message right after connect, and treating it as a turn start made
+            # fresh sessions show "Claude is thinking…" before any user input.
+            if not sess.in_turn and not isinstance(msg, (ResultMessage, SystemMessage)):
                 sess.in_turn = True
                 await sess.queue.put({"type": "turn_start"})
             payload = _serialize_message(msg)
@@ -421,6 +447,25 @@ async def set_permission_mode(sid: str, payload: dict) -> dict:
     await sess.client.set_permission_mode(mode)
     sess.permission_mode = mode
     return {"ok": True, "permission_mode": mode}
+
+
+@router.post("/sessions/{sid}/model")
+async def set_session_model(sid: str, payload: dict) -> dict:
+    """Switch the model of a live session in place (next turn uses it)."""
+    sess = SESSIONS.get(sid)
+    if sess is None:
+        raise HTTPException(404, f"session {sid} not found")
+    model = payload.get("model") or None
+    if model is not None and model not in ALLOWED_MODELS:
+        raise HTTPException(400, f"invalid model: {model!r} (allowed: {ALLOWED_MODELS})")
+    await sess.client.set_model(model)
+    sess.model = model
+    with cursor() as cur:
+        cur.execute(
+            "UPDATE state.chat_sessions SET model = ? WHERE session_id = ?",
+            [model, sid],
+        )
+    return {"ok": True, "model": model}
 
 
 @router.delete("/sessions/{sid}")

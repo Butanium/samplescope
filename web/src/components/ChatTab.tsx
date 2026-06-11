@@ -17,6 +17,10 @@ type DisplayMessage =
   | { kind: "result"; cost: number | null; turns: number; ms: number; isError: boolean }
   | { kind: "error"; message: string };
 
+// Model classes the backend accepts (aliases resolved by the Claude Code
+// CLI to the latest model of each class). "default" = the CLI's own default.
+const MODEL_OPTIONS = ["default", "haiku", "sonnet", "opus", "fable"] as const;
+
 type Mode = "acceptEdits" | "default" | "bypassPermissions";
 const MODE_CYCLE: Mode[] = ["default", "acceptEdits", "bypassPermissions"];
 const MODE_LABEL: Record<Mode, string> = {
@@ -59,6 +63,14 @@ export default function ChatTab({ id, active, readOnlyHistorical = false }: Chat
   const [input, setInput] = usePref<string>(`chatDraft::${id}`, "");
   const [injectRow, setInjectRow] = useState(true);
   const [mode, setMode] = useState<Mode>("acceptEdits");
+  // Global pref doubles as the default for newly created sessions (read by
+  // ChatDrawer) and as this tab's selector value. Changing it mid-session
+  // switches the live session via set_model — next turn uses the new model.
+  const [model, setModel] = usePref<string>("chatModel", "default");
+  const pickModel = useCallback(async (m: string) => {
+    setModel(m);
+    await api.setChatModel(id, m === "default" ? null : m).catch(() => {});
+  }, [id, setModel]);
   // Phased status so the UI tells the user where things are:
   //   sending: POST in flight to our API
   //   acked: backend accepted the message; SDK has it, model not yet emitting
@@ -239,6 +251,15 @@ export default function ChatTab({ id, active, readOnlyHistorical = false }: Chat
         >
           {MODE_ICON[mode]} {MODE_LABEL[mode]}
         </button>
+        <select
+          value={model}
+          onChange={(e) => pickModel(e.target.value)}
+          disabled={readOnly}
+          title="model class for this session (applies from the next turn)"
+          className="px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800/60 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-[11px] outline-none cursor-pointer disabled:opacity-50"
+        >
+          {MODEL_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
         <label className="flex items-center gap-1 text-[10px] text-zinc-600 dark:text-zinc-400">
           <input type="checkbox" checked={injectRow} onChange={(e) => setInjectRow(e.target.checked)} />
           inject current row
