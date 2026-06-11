@@ -19,11 +19,10 @@ dependencies = [
     "httpx-sse>=0.4",
     # .eval log reading + the judge runner both go through inspect-ai.
     "inspect-ai>=0.3.125",
+    # Embedded Claude chat drawer + NL→SQL. A default dependency; the app
+    # still degrades gracefully if the import breaks (501 + health flag).
+    "claude-agent-sdk>=0.1",
 ]
-
-[project.optional-dependencies]
-# Embedded Claude chat drawer + NL→SQL. The app degrades gracefully without it.
-chat = ["claude-agent-sdk>=0.1"]
 
 [project.scripts]
 dataset-viewer = "dataset_viewer.serve:main"

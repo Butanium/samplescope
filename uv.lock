@@ -564,6 +564,7 @@ name = "dataset-viewer"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "claude-agent-sdk" },
     { name = "duckdb" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -574,11 +575,6 @@ dependencies = [
     { name = "sse-starlette" },
     { name = "typer" },
     { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-chat = [
-    { name = "claude-agent-sdk" },
 ]
 
 [package.dev-dependencies]
@@ -593,7 +589,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "claude-agent-sdk", marker = "extra == 'chat'", specifier = ">=0.1" },
+    { name = "claude-agent-sdk", specifier = ">=0.1" },
     { name = "duckdb", specifier = ">=1.1" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
@@ -605,7 +601,6 @@ requires-dist = [
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
-provides-extras = ["chat"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -4,8 +4,8 @@ A research-focused browser for JSONL / CSV / inspect-ai `.eval` datasets.
 Point it at any directory; it auto-detects schemas and renders chat
 transcripts as bubbles, flat rows as a virtualized table, training curves as
 line charts, and `.eval` logs as rich sample cards — with regex/SQL
-filtering, shuffling, marks/annotations, LLM judges, and an optional embedded
-Claude chat that drives the UI.
+filtering, shuffling, marks/annotations, LLM judges, and an embedded Claude
+chat that drives the UI.
 
 ## Install & run
 
@@ -20,9 +20,8 @@ default port is taken (e.g. another instance), the next free one is picked
 automatically; running several instances against different projects is a
 supported workflow.
 
-```bash
-uv tool install 'dataset-viewer[chat]'  # + embedded Claude chat drawer
-```
+The embedded Claude chat drawer ships by default (claude-agent-sdk); it
+authenticates via `ANTHROPIC_API_KEY` or a logged-in `claude` CLI session.
 
 ## Keyboard
 
@@ -44,9 +43,9 @@ uv tool install 'dataset-viewer[chat]'  # + embedded Claude chat drawer
 - **Judges**: built-in presets plus user-defined ones (saved to the state
   DB). Needs `OPENAI_API_KEY` (or any inspect-ai-supported provider via the
   preset's model field).
-- **Chat** (optional `[chat]` extra) is a real Claude Code session via
-  `claude-agent-sdk`. Claude drives the UI through the `viewer` CLI (Bash
-  subprocess) hitting the same HTTP API the frontend uses.
+- **Chat** is a real Claude Code session via `claude-agent-sdk`. Claude
+  drives the UI through the `viewer` CLI (Bash subprocess) hitting the same
+  HTTP API the frontend uses.
 
 ## `viewer` CLI
 

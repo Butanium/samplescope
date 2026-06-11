@@ -33,11 +33,12 @@ for the verbatim import; everything after is the standalone adaptation).
   dataset path in the API is relative to it and `safe_path` refuses escapes.
   With multiple scan roots the root can be high (e.g. `~`); acceptable for a
   localhost-only single-user tool.
-- **Chat is the `[chat]` extra.** `api/main.py` probes the
-  `routes.chat` import (claude-agent-sdk is its only missing dep) and falls
-  back to a 501 stub on `/api/chat/*`; `/api/health` reports
-  `chat_available` so the UI can degrade. NL→SQL (`/api/datasets/sql_nl`)
-  guards its lazy SDK import the same way.
+- **Chat ships by default** (claude-agent-sdk is a regular dependency; it
+  was briefly an optional `[chat]` extra — Clément chose default-on).
+  `api/main.py` still probes the `routes.chat` import and falls back to a
+  501 stub on `/api/chat/*` if the SDK somehow fails to import;
+  `/api/health` reports `chat_available` so the UI can degrade. NL→SQL
+  (`/api/datasets/sql_nl`) guards its lazy SDK import the same way.
 - **Port auto-pick**: no `--port` → first free port from 8765 (multi-instance
   is a first-class workflow); explicit `--port` taken → hard error.
 

@@ -606,7 +606,7 @@ async def sql_from_nl(payload: dict) -> dict:
     except ImportError:
         raise HTTPException(
             501,
-            "NL→SQL requires the optional claude-agent-sdk — install dataset-viewer[chat]",
+            "NL→SQL is unavailable: claude-agent-sdk failed to import (check server logs)",
         )
     options = ClaudeAgentOptions(
         system_prompt=_NL_SQL_SYSTEM + "\n\n" + schema_hint,

@@ -29,8 +29,8 @@ export default function ChatDrawer({ onClose }: { onClose: () => void }) {
   const [unresumable, setUnresumable] = useState<Set<string>>(new Set());
   const initRef = useRef(false);
 
-  // Chat is an optional server extra (`dataset-viewer[chat]`); don't spawn a
-  // session against a server that will 501 it.
+  // claude-agent-sdk ships by default but can still fail to import server-side;
+  // don't spawn a session against a server that will 501 it.
   const { data: health } = useQuery({ queryKey: ["health"], queryFn: api.health, staleTime: Infinity });
   const chatAvailable = health?.chat_available !== false;
 
@@ -112,8 +112,7 @@ export default function ChatDrawer({ onClose }: { onClose: () => void }) {
       <>
         <PanelHeader title="claude code" onClose={onClose} />
         <div className="flex-1 flex items-center justify-center text-xs text-zinc-500 px-4 text-center">
-          chat is not enabled on this server — install the chat extra:&nbsp;
-          <code className="font-mono">uv tool install 'dataset-viewer[chat]'</code>
+          chat is unavailable on this server (claude-agent-sdk failed to import — check the server logs)
         </div>
       </>
     );

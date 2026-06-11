@@ -15,9 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from .duck import get_conn
 from .routes import datasets, eval_logs, highlights, judges, marks, metrics, plots, prefs, state
 
-# Chat is an optional extra (`dataset-viewer[chat]`): the route module imports
-# claude-agent-sdk at module level, so probe via import and degrade to a 501
-# stub when the SDK isn't installed.
+# claude-agent-sdk is a default dependency, but degrade gracefully anyway if
+# its import breaks: probe the route module import and fall back to a 501
+# stub + health flag the UI can read.
 try:
     from .routes import chat
 except ImportError:
@@ -60,7 +60,7 @@ else:
     def chat_unavailable(rest: str) -> None:
         raise HTTPException(
             501,
-            "chat requires the optional claude-agent-sdk — install dataset-viewer[chat]",
+            "chat is unavailable: claude-agent-sdk failed to import (check server logs)",
         )
 
 
