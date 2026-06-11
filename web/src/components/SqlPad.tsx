@@ -54,11 +54,11 @@ export default function SqlPad({ onClose }: { onClose: () => void }) {
   function pushHistory(entry: string) {
     const trimmed = entry.trim();
     if (!trimmed) return;
-    setHistory((prev) => {
-      // Drop a consecutive duplicate at the top to avoid spam from re-runs.
-      const filtered = prev[0] === trimmed ? prev.slice(1) : prev.filter((q) => q !== trimmed);
-      return [trimmed, ...filtered].slice(0, HISTORY_CAP);
-    });
+    // usePref's setter takes a plain value (no updater form — it writes
+    // through to the prefs backend), so dedupe against the current value.
+    const filtered =
+      history[0] === trimmed ? history.slice(1) : history.filter((q) => q !== trimmed);
+    setHistory([trimmed, ...filtered].slice(0, HISTORY_CAP));
     setHistoryIdx(null);
   }
 

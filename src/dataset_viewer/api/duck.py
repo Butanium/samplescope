@@ -3,7 +3,7 @@
 Two responsibilities:
 1. A single shared in-memory DuckDB connection used to query JSONL files via
    `read_json_auto(...)`. Schema inference is on; results are paginated.
-2. A persistent state DB at `apps/dataset_viewer/.cache/state.duckdb` holding
+2. A persistent state DB at `~/.local/state/dataset-viewer/<key>/` holding
    marks, judge presets, judge results, and chat session metadata.
 """
 from __future__ import annotations
@@ -195,10 +195,10 @@ def row_hash(row: dict[str, Any]) -> str:
 
 
 def safe_path(path: str) -> Path:
-    """Resolve a user-supplied relative path against the repo root, refusing escapes."""
-    p = (SETTINGS.repo_root / path).resolve()
-    if SETTINGS.repo_root not in p.parents and p != SETTINGS.repo_root:
-        raise ValueError(f"path escapes repo root: {path}")
+    """Resolve a user-supplied relative path against the serving root, refusing escapes."""
+    p = (SETTINGS.root / path).resolve()
+    if SETTINGS.root not in p.parents and p != SETTINGS.root:
+        raise ValueError(f"path escapes serving root: {path}")
     if not p.exists():
         raise FileNotFoundError(p)
     return p

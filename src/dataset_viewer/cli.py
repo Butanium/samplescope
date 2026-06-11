@@ -1,13 +1,14 @@
 """`viewer` CLI — drives the dataset viewer through its HTTP API.
 
 Designed for two callers:
-  - Clément, from a terminal, as a real interactive tool.
+  - a human, from a terminal, as a real interactive tool.
   - Claude, via Bash, as a replacement for the MCP-tool surface.
 
-The CLI hits the same FastAPI endpoints the frontend uses (default
-`http://127.0.0.1:8765/api/...`) so there is one source of truth and editing
-the CLI mid-chat takes effect on the next subprocess invocation. Override the
-base URL with `VIEWER_BASE_URL`.
+The CLI hits the same FastAPI endpoints the frontend uses, so there is one
+source of truth and editing the CLI mid-chat takes effect on the next
+subprocess invocation. The target server is auto-discovered from the instance
+registry (the running instance whose scan root contains cwd); override with
+`VIEWER_BASE_URL` or `--base-url`.
 
 Output is plain stdout: aligned-column tables for lists, compact JSON for
 single objects, and per-row progressive prints for streaming endpoints. Long
@@ -28,13 +29,48 @@ from httpx_sse import connect_sse
 app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
-    help="Drive the dataset_viewer over its HTTP API.",
+    help="Drive the dataset-viewer over its HTTP API.",
 )
 
 
-BASE_URL = os.environ.get("VIEWER_BASE_URL", "http://127.0.0.1:8765").rstrip("/")
 TRUNCATE_AT = 4000
 HTTP_TIMEOUT = 60.0
+
+# Resolved lazily (and cached) so plain `viewer --help` never touches the
+# instance registry. Precedence: --base-url > $VIEWER_BASE_URL > discovery
+# via ~/.local/state/dataset-viewer/instances.json (instance whose scan root
+# contains cwd).
+_BASE_URL_OVERRIDE: str | None = None
+_BASE_URL: str | None = None
+
+
+@app.callback()
+def _global_options(
+    base_url: Optional[str] = typer.Option(
+        None,
+        "--base-url",
+        help="viewer server URL (default: $VIEWER_BASE_URL, else auto-discover the running instance scanning cwd)",
+    ),
+) -> None:
+    global _BASE_URL_OVERRIDE
+    _BASE_URL_OVERRIDE = base_url
+
+
+def _base_url() -> str:
+    """Resolve the target server URL, discovering a running instance if needed."""
+    global _BASE_URL
+    if _BASE_URL is not None:
+        return _BASE_URL
+    url = _BASE_URL_OVERRIDE or os.environ.get("VIEWER_BASE_URL")
+    if not url:
+        from .instances import DiscoveryError, discover
+
+        try:
+            url = discover(Path.cwd()).base_url
+        except DiscoveryError as e:
+            _die(str(e))
+    _BASE_URL = url.rstrip("/")
+    return _BASE_URL
 
 
 # ---------- HTTP plumbing ----------
@@ -42,7 +78,7 @@ HTTP_TIMEOUT = 60.0
 
 def _client() -> httpx.Client:
     """Construct a short-lived httpx.Client bound to the viewer base URL."""
-    return httpx.Client(base_url=BASE_URL, timeout=HTTP_TIMEOUT)
+    return httpx.Client(base_url=_base_url(), timeout=HTTP_TIMEOUT)
 
 
 def _die(msg: str, code: int = 1) -> None:
@@ -506,7 +542,7 @@ def cmd_judge(
         "model": model,
     }
     print(f"preset={preset}  path={p}  indices={indices}")
-    with httpx.Client(base_url=BASE_URL, timeout=None) as c:
+    with httpx.Client(base_url=_base_url(), timeout=None) as c:
         with connect_sse(c, "POST", "/api/judges/run", json=body) as event_source:
             if event_source.response.status_code >= 400:
                 body_text = event_source.response.read().decode("utf-8", errors="replace")

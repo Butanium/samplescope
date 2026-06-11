@@ -47,7 +47,7 @@ def _claude_project_dir() -> _Path:
     Claude Code encodes the project's absolute path into the dir name by
     replacing non-alnum chars with `-`. Mirrors the SDK's `project_key_for_directory`.
     """
-    encoded = _re.sub(r"[^a-zA-Z0-9]", "-", str(SETTINGS.repo_root))
+    encoded = _re.sub(r"[^a-zA-Z0-9]", "-", str(SETTINGS.root))
     return _Path.home() / ".claude" / "projects" / encoded
 
 
@@ -98,7 +98,7 @@ Run `viewer --help` for more. Use Read/Edit on Python source only when changing 
 # Viewer schema conventions
 
 When generating JSONL files the user will browse here, pick a schema that lets
-the viewer auto-detect a useful view (see `apps/dataset_viewer/api/schema_detect.py`):
+the viewer auto-detect a useful view (see `dataset_viewer/api/schema_detect.py`):
 
 - **Chat view (preferred for prompt/completion pairs)** — every row carries a
   `messages: [{role, content}, ...]` list. The conversation renders as bubbles;
@@ -222,8 +222,12 @@ def _persist(session_id: str, payload: dict) -> int:
 def _build_options(permission_mode: str, resume: str | None = None) -> ClaudeAgentOptions:
     """Shared option construction for fresh + resumed sessions."""
     kwargs: dict[str, Any] = dict(
-        cwd=str(SETTINGS.repo_root),
+        cwd=str(SETTINGS.root),
         permission_mode=permission_mode,
+        # The chat-spawned `viewer` CLI must target *this* server instance —
+        # not whatever cwd-based discovery would pick. Merged into the
+        # subprocess env by the SDK (inherits the rest of os.environ).
+        env={"VIEWER_BASE_URL": SETTINGS.base_url},
         system_prompt={
             "type": "preset",
             "preset": "claude_code",

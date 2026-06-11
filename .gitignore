@@ -18,3 +18,6 @@ src/dataset_viewer/web_dist/
 .cache/
 
 .env
+
+# Harness artifacts
+.claude/scheduled_tasks.lock

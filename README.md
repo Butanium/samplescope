@@ -1,25 +1,27 @@
-# dataset_viewer
+# dataset-viewer
 
-A research-focused viewer for every JSONL + inspect-`.eval` file under `experiments/`.
+A research-focused browser for JSONL / CSV / inspect-ai `.eval` datasets.
+Point it at any directory; it auto-detects schemas and renders chat
+transcripts as bubbles, flat rows as a virtualized table, training curves as
+line charts, and `.eval` logs as rich sample cards — with regex/SQL
+filtering, shuffling, marks/annotations, LLM judges, and an optional embedded
+Claude chat that drives the UI.
 
-## Quickstart
+## Install & run
 
 ```bash
-# from repo root — the `viewer` extra pulls in fastapi/duckdb/agent-sdk/etc.
-uv sync --extra viewer
-cd apps/dataset_viewer/web && npm install  # one-time
-
-# back here
-make dev                                   # starts api on :8765 and web on :5173
+uv tool install dataset-viewer        # or: uvx dataset-viewer
+cd ~/my-project && dataset-viewer     # serve datasets under cwd
+dataset-viewer results/ logs/ --port 9000   # explicit dirs / port
 ```
 
-Open http://127.0.0.1:5173.
-
-## Run pieces separately
+One process, one port — the built web UI ships inside the wheel. If the
+default port is taken (e.g. another instance), the next free one is picked
+automatically; running several instances against different projects is a
+supported workflow.
 
 ```bash
-make api    # FastAPI + DuckDB on :8765
-make web    # Vite dev server on :5173 (proxies /api → :8765)
+uv tool install 'dataset-viewer[chat]'  # + embedded Claude chat drawer
 ```
 
 ## Keyboard
@@ -31,15 +33,27 @@ make web    # Vite dev server on :5173 (proxies /api → :8765)
 
 ## Concepts
 
-- **Datasets** are auto-detected: chat (`messages` array) → bubble view, flat rows → virtualized table, `step`-keyed metrics → line chart, `.eval` → inspect log view.
-- **DuckDB reads JSONL on the fly** — no ingest step. Filters use `regexp_matches`, shuffling uses `ORDER BY hash(row, seed)`.
-- **Marks** (tags + free-text notes) and **judge results** persist in `apps/dataset_viewer/.cache/state.duckdb`.
-- **Judges** reuse `src/conditional_misalignment/judges.py` for the alignment + coherence presets; new presets are saved to the state DB.
-- **Chat** is a real Claude Code session via `claude-agent-sdk`. Standard tools (Read/Edit/Bash/Glob/Grep) are on; Claude drives the UI through the `viewer` CLI (Bash subprocess), which hits the same HTTP API the frontend uses. Editing the CLI takes effect on the next subprocess invocation — no session restart.
+- **Datasets** are auto-detected: chat (`messages` array) → bubble view, flat
+  rows → virtualized table, `step`-keyed metrics → line chart, CSV/TSV →
+  table, `.eval` → inspect log view.
+- **DuckDB reads files on the fly** — no ingest step. Filters use
+  `regexp_matches`, shuffling uses `ORDER BY hash(row, seed)`.
+- **Marks** (tags + free-text notes), **judge results**, and prefs persist in
+  `~/.local/state/dataset-viewer/<key>/state.duckdb`, keyed by the scan-root
+  set — annotations survive restarts and the viewed repos stay clean.
+- **Judges**: built-in presets plus user-defined ones (saved to the state
+  DB). Needs `OPENAI_API_KEY` (or any inspect-ai-supported provider via the
+  preset's model field).
+- **Chat** (optional `[chat]` extra) is a real Claude Code session via
+  `claude-agent-sdk`. Claude drives the UI through the `viewer` CLI (Bash
+  subprocess) hitting the same HTTP API the frontend uses.
 
-## viewer CLI
+## `viewer` CLI
 
-The `viewer` script is installed as a console entry point (`uv pip install -e .`). It targets `http://127.0.0.1:8765` by default; override via `VIEWER_BASE_URL`.
+Installed alongside `dataset-viewer`. It auto-discovers the running instance
+whose scan root contains your cwd (registry:
+`~/.local/state/dataset-viewer/instances.json`); override with
+`VIEWER_BASE_URL` or `--base-url`.
 
 ```bash
 viewer ls                                  # discover datasets
@@ -55,25 +69,32 @@ viewer sql "<query>"                       # DuckDB SQL on the open file (FROM t
 viewer state                               # current viewer state
 ```
 
-Use it as a real terminal tool too — same surface, same endpoints.
-
 ## Configuration
 
-Set env vars in `.env` at the repo root (auto-loaded):
+Env vars (a `.env` in the launch directory is auto-loaded):
 
-- `OPENAI_API_KEY` — required for judges
-- `ANTHROPIC_API_KEY` — required for chat
-- `DATASET_VIEWER_SCAN_ROOTS` — `:`-separated dirs to scan (default: `experiments/`)
-- `DATASET_VIEWER_JUDGE_MODEL` — default `gpt-4.1-2025-04-14`
-- `DATASET_VIEWER_PORT` / `DATASET_VIEWER_HOST` — bind address (default `127.0.0.1:8765`)
+- `OPENAI_API_KEY` — required for the default judge presets
+- `ANTHROPIC_API_KEY` — chat (a logged-in `claude` CLI session also works)
+- `DATASET_VIEWER_SCAN_ROOTS` — `:`-separated dirs (CLI args take precedence)
+- `DATASET_VIEWER_HOST` / `DATASET_VIEWER_PORT` — bind address
+- `DATASET_VIEWER_CHAT_MODEL` — chat model override
+- `VIEWER_BASE_URL` — `viewer` CLI target (skips instance discovery)
 
 ## Architecture
 
-Single FastAPI process holds the global `ViewerState`; the frontend mirrors it via SSE
-(`/api/state/events`). Both UI clicks and Claude tool calls publish into the same bus,
-so the UI updates whether you click a row or Claude calls `goto_row(42)` from chat.
-
-Chat sessions are isolated `ClaudeSDKClient` instances, kept in-process keyed by
-session id. Each session streams its events on `/api/chat/sessions/{id}/events`.
+Single FastAPI process holds the global `ViewerState`; the frontend mirrors
+it via SSE (`/api/state/events`). UI clicks and Claude tool calls publish
+into the same bus, so the view updates whether you click a row or Claude
+calls `viewer goto 42` from chat. The compiled frontend is served by the same
+process (`/api` routes win precedence); the vite dev server is for
+development only.
 
 State DB schema lives in `api/duck.py::_init_state_schema`.
+
+## Development
+
+```bash
+make install   # uv sync --all-extras + npm install
+make dev       # api (--reload) on :8765 + vite on :5173, serving DIR=.
+make test      # pytest (API + CLI + playwright smoke)
+```

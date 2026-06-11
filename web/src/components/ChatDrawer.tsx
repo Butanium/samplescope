@@ -29,6 +29,11 @@ export default function ChatDrawer({ onClose }: { onClose: () => void }) {
   const [unresumable, setUnresumable] = useState<Set<string>>(new Set());
   const initRef = useRef(false);
 
+  // Chat is an optional server extra (`dataset-viewer[chat]`); don't spawn a
+  // session against a server that will 501 it.
+  const { data: health } = useQuery({ queryKey: ["health"], queryFn: api.health, staleTime: Infinity });
+  const chatAvailable = health?.chat_available !== false;
+
   // First mount:
   //   - If we restored tabs from disk: re-attach each one server-side so the
   //     SDK clients exist by the time the user sends. SSE inside ChatTab
@@ -37,6 +42,7 @@ export default function ChatDrawer({ onClose }: { onClose: () => void }) {
   //   - If we restored nothing: spin a fresh tab so the user never sees an
   //     empty drawer.
   useEffect(() => {
+    if (!health || !chatAvailable) return; // wait for the probe; never init when disabled
     if (initRef.current) return;
     initRef.current = true;
     (async () => {
@@ -58,7 +64,7 @@ export default function ChatDrawer({ onClose }: { onClose: () => void }) {
       }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [health]);
 
   async function newTab() {
     const s = await api.createSession();
@@ -99,6 +105,18 @@ export default function ChatDrawer({ onClose }: { onClose: () => void }) {
     // Closing the tab also tears down the live SDK client. Old sessions stay
     // persisted in DuckDB and can be reopened from history again.
     api.closeSession(id).catch(() => {});
+  }
+
+  if (!chatAvailable) {
+    return (
+      <>
+        <PanelHeader title="claude code" onClose={onClose} />
+        <div className="flex-1 flex items-center justify-center text-xs text-zinc-500 px-4 text-center">
+          chat is not enabled on this server — install the chat extra:&nbsp;
+          <code className="font-mono">uv tool install 'dataset-viewer[chat]'</code>
+        </div>
+      </>
+    );
   }
 
   return (

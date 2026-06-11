@@ -18,7 +18,7 @@ from fastapi import APIRouter, HTTPException, Query
 from ..duck import cursor, safe_path
 from ..models import DatasetEntry, DatasetInfo, RowPage
 from ..schema_detect import detect_view
-from ..settings import CACHE_DIR, SETTINGS
+from ..settings import SETTINGS
 from ..state import BUS
 
 router = APIRouter(prefix="/api/datasets", tags=["datasets"])
@@ -48,7 +48,7 @@ def _read_source(p: Path, param: str = "?") -> str:
 # access, then every read goes through the same DuckDB path as a normal JSONL.
 # That gives /rows, /sample, /sql, /filter, /shuffle all work over .eval samples
 # for free, without per-route branching.
-EVAL_MAT_DIR = CACHE_DIR / "eval_materialized"
+EVAL_MAT_DIR = SETTINGS.cache_dir / "eval_materialized"
 
 
 def _materialize_eval(p: Path) -> Path:
@@ -130,7 +130,7 @@ def list_datasets() -> list[DatasetEntry]:
             if kind == "other":
                 continue
             try:
-                rel = p.relative_to(SETTINGS.repo_root).as_posix()
+                rel = p.relative_to(SETTINGS.root).as_posix()
             except ValueError:
                 continue
             out.append(
@@ -139,7 +139,7 @@ def list_datasets() -> list[DatasetEntry]:
                     name=p.name,
                     size_bytes=p.stat().st_size,
                     kind=kind,
-                    parent=p.parent.relative_to(SETTINGS.repo_root).as_posix(),
+                    parent=p.parent.relative_to(SETTINGS.root).as_posix(),
                 )
             )
     return out
@@ -601,7 +601,13 @@ async def sql_from_nl(payload: dict) -> dict:
     # SDK accepts plain aliases ("sonnet", "opus", "haiku") and resolves to the
     # current default version. Env override available for pinning specific IDs.
     model = os.environ.get("DATASET_VIEWER_NL_MODEL") or requested_model
-    from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
+    try:
+        from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
+    except ImportError:
+        raise HTTPException(
+            501,
+            "NL→SQL requires the optional claude-agent-sdk — install dataset-viewer[chat]",
+        )
     options = ClaudeAgentOptions(
         system_prompt=_NL_SQL_SYSTEM + "\n\n" + schema_hint,
         output_format={"type": "json_schema", "schema": _NL_SQL_SCHEMA},
@@ -611,7 +617,7 @@ async def sql_from_nl(payload: dict) -> dict:
         max_turns=3,
         allowed_tools=[],  # no Read/Bash/etc. — agent's only job is to emit the schema.
         model=model,
-        cwd=str(SETTINGS.repo_root),
+        cwd=str(SETTINGS.root),
     )
 
     structured: dict | None = None
