@@ -1,11 +1,13 @@
 [project]
 name = "samplescope"
 version = "0.1.0"
-description = "Browse JSONL / CSV / inspect-ai .eval datasets in the browser: chat & table views, regex/SQL filters, marks, LLM judges, optional embedded Claude chat."
+description = "Close-reading workbench for JSONL / CSV / inspect-ai .eval experiment outputs: chat & table views, regex/SQL filters, marks, LLM judges, embedded Claude chat."
 readme = "README.md"
 authors = [
     { name = "Clement Dumas", email = "clement.dumas@ens-paris-saclay.fr" }
 ]
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",
@@ -23,6 +25,9 @@ dependencies = [
     # still degrades gracefully if the import breaks (501 + health flag).
     "claude-agent-sdk>=0.1",
 ]
+
+[project.urls]
+Repository = "https://github.com/Butanium/samplescope"
 
 [project.scripts]
 samplescope = "samplescope.serve:main"
