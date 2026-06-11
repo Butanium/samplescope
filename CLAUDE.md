@@ -1,9 +1,7 @@
 # samplescope — implementation notes
 
 README.md is the user quickstart. This file is for design decisions that
-aren't self-evident from the code. Extracted 2026-06-11 from
-`astra/conditional_misalignment/apps/dataset_viewer/` (see the initial commit
-for the verbatim import; everything after is the standalone adaptation).
+aren't self-evident from the code.
 
 ## Standalone packaging
 
@@ -42,7 +40,7 @@ for the verbatim import; everything after is the standalone adaptation).
 - **Port auto-pick**: no `--port` → first free port from 8765 (multi-instance
   is a first-class workflow); explicit `--port` taken → hard error.
 
-## Viewer internals (inherited from the astra version)
+## Viewer internals
 
 - **Navigation steps through visible order, not `row_idx ± 1`.**
   `web/src/lib/nav.ts` is a module-level cursor; views publish their

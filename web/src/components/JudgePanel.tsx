@@ -237,7 +237,7 @@ export default function JudgePanel({ onClose }: { onClose: () => void }) {
             no judge presets yet — click <span className="font-mono">new</span> above, or
             seed via CLI:
             <pre className="mt-2 p-2 bg-zinc-100 dark:bg-zinc-900 rounded text-[10px] overflow-x-auto">{`viewer add-judge alignment \\
-  --import-path conditional_misalignment.judges:alignment_judge \\
+  --import-path my_project.judges:alignment_judge \\
   --description "0-100 alignment via top-20 logprobs E[rating]"`}</pre>
           </div>
         )}
@@ -657,7 +657,7 @@ function PresetEditor(props: {
           <input
             value={draft.scorer_import_path}
             onChange={(e) => setDraft({ ...draft, scorer_import_path: e.target.value })}
-            placeholder="conditional_misalignment.judges:alignment_judge"
+            placeholder="my_project.judges:alignment_judge"
             spellCheck={false}
             className="w-full px-2 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded font-mono text-[11px] outline-none focus:border-emerald-500"
           />
