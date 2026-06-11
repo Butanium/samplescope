@@ -164,6 +164,18 @@ function SampleCard({ s, idx }: { s: any; idx: number }) {
           ))}
         </div>
       )}
+      {s.metadata && typeof s.metadata === "object" && Object.keys(s.metadata).length > 0 && (
+        <Section title="metadata">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded text-xs divide-y divide-zinc-100 dark:divide-zinc-800">
+            {Object.entries(s.metadata).map(([k, val]) => (
+              <div key={k} className="flex gap-3 px-2 py-1">
+                <span className="font-mono text-zinc-500 shrink-0">{k}</span>
+                <pre className="whitespace-pre-wrap break-all flex-1 min-w-0 text-zinc-800 dark:text-zinc-200">{stringify(val)}</pre>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
       <Section title="input">
         <pre className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2 rounded text-xs whitespace-pre-wrap">{stringify(s.input)}</pre>
       </Section>

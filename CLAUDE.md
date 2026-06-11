@@ -10,6 +10,12 @@ aren't self-evident from the code.
   wheel embeds. `api/main.py` mounts it at `/` AFTER the routers, so `/api/*`
   wins. In a source checkout without a wheel build, `web/dist` (if built) is
   served instead; the vite dev server is for frontend development only.
+- **Reinstalling after source edits needs a cache bust.** `uv tool install
+  --force --from .` can reuse a cached wheel of the local source and silently
+  install stale code. Use
+  `uv tool install --force --reinstall --refresh-package samplescope --from . samplescope`
+  (add `SAMPLESCOPE_SKIP_WEB_BUILD=1` + manual `cp -r web/dist
+  src/samplescope/web_dist` to reuse an already-built frontend).
 - **Config flows through env vars.** `serve.py` translates CLI args into
   `SAMPLESCOPE_*` env vars *before* importing the app, because
   `api/settings.py` resolves `SETTINGS` at import time and uvicorn `--reload`

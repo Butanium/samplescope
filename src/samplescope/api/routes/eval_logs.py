@@ -39,7 +39,9 @@ def eval_header(path: str) -> dict:
         "results": _to_dict(log.results),
         "stats": _to_dict(log.stats),
         "error": _to_dict(log.error) if log.error else None,
-        "samples_count": len(log.samples) if log.samples else 0,
+        # header_only never populates log.samples; the count lives in results.
+        # Interrupted runs may lack results entirely — report 0 rather than guess.
+        "samples_count": (log.results.total_samples if log.results else None) or 0,
     }
 
 

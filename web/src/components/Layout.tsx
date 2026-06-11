@@ -20,7 +20,7 @@ import { useViewerState } from "../lib/state";
 import { useUrlSync } from "../lib/url";
 import { api } from "../lib/api";
 import { nextIdx, prevIdx } from "../lib/nav";
-import { MessageSquare, Database, Star, Scale, Terminal, HelpCircle, Highlighter, Image as ImageIcon } from "lucide-react";
+import { MessageSquare, Database, Star, Scale, Terminal, HelpCircle, Highlighter, Image as ImageIcon, ChevronDown, ChevronUp } from "lucide-react";
 
 export default function Layout() {
   const v = useViewerState();
@@ -28,6 +28,10 @@ export default function Layout() {
   const [treeWidth, setTreeWidth] = useState(280);
   // Persist per browser/profile (synced cross-browser via the prefs backend).
   const [drawerWidth, setDrawerWidth] = usePref<number>("drawerWidth", 480);
+  // The bubble stack can cover sample text on narrow viewports — let the user
+  // fold it down to just the expander + theme toggle. Keyboard shortcuts keep
+  // working while collapsed.
+  const [bubblesCollapsed, setBubblesCollapsed] = usePref<boolean>("bubblesCollapsed", false);
   const drawer = url.drawer;
 
   useEffect(() => {
@@ -140,14 +144,25 @@ export default function Layout() {
         className="fixed bottom-3 flex flex-col gap-2 z-30 transition-[right] duration-150"
         style={{ right: drawer === "none" ? 12 : drawerWidth + 16 }}
       >
-        <DrawerToggle icon={<MessageSquare size={18} />} active={drawer === "chat"} title="Chat (c)" onClick={() => setDrawer(drawer === "chat" ? "none" : "chat")} />
-        <DrawerToggle icon={<Star size={18} />} active={drawer === "marks"} title="Marks (m)" onClick={() => setDrawer(drawer === "marks" ? "none" : "marks")} />
-        <DrawerToggle icon={<Scale size={18} />} active={drawer === "judges"} title="Judges (g)" onClick={() => setDrawer(drawer === "judges" ? "none" : "judges")} />
-        <DrawerToggle icon={<Highlighter size={18} />} active={drawer === "highlights"} title="Highlights (h)" onClick={() => setDrawer(drawer === "highlights" ? "none" : "highlights")} />
-        <DrawerToggle icon={<ImageIcon size={18} />} active={drawer === "plots"} title="Plots (p)" onClick={() => setDrawer(drawer === "plots" ? "none" : "plots")} />
-        <DrawerToggle icon={<Terminal size={18} />} active={drawer === "sql"} title="SQL (\\)" onClick={() => setDrawer(drawer === "sql" ? "none" : "sql")} />
-        <DrawerToggle icon={<HelpCircle size={18} />} active={drawer === "help"} title="Help (?)" onClick={() => setDrawer(drawer === "help" ? "none" : "help")} />
-        <div className="mt-1 self-center">
+        {!bubblesCollapsed && (
+          <>
+            <DrawerToggle icon={<MessageSquare size={18} />} active={drawer === "chat"} title="Chat (c)" onClick={() => setDrawer(drawer === "chat" ? "none" : "chat")} />
+            <DrawerToggle icon={<Star size={18} />} active={drawer === "marks"} title="Marks (m)" onClick={() => setDrawer(drawer === "marks" ? "none" : "marks")} />
+            <DrawerToggle icon={<Scale size={18} />} active={drawer === "judges"} title="Judges (g)" onClick={() => setDrawer(drawer === "judges" ? "none" : "judges")} />
+            <DrawerToggle icon={<Highlighter size={18} />} active={drawer === "highlights"} title="Highlights (h)" onClick={() => setDrawer(drawer === "highlights" ? "none" : "highlights")} />
+            <DrawerToggle icon={<ImageIcon size={18} />} active={drawer === "plots"} title="Plots (p)" onClick={() => setDrawer(drawer === "plots" ? "none" : "plots")} />
+            <DrawerToggle icon={<Terminal size={18} />} active={drawer === "sql"} title="SQL (\\)" onClick={() => setDrawer(drawer === "sql" ? "none" : "sql")} />
+            <DrawerToggle icon={<HelpCircle size={18} />} active={drawer === "help"} title="Help (?)" onClick={() => setDrawer(drawer === "help" ? "none" : "help")} />
+          </>
+        )}
+        <button
+          onClick={() => setBubblesCollapsed(!bubblesCollapsed)}
+          title={bubblesCollapsed ? "show panel buttons (shortcuts still work)" : "hide panel buttons"}
+          className="w-7 h-7 self-center rounded-full border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 flex items-center justify-center hover:bg-zinc-200 dark:hover:bg-zinc-800 transition"
+        >
+          {bubblesCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+        <div className="self-center">
           <ThemeToggle />
         </div>
       </div>
