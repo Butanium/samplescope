@@ -3,7 +3,7 @@
 Two responsibilities:
 1. A single shared in-memory DuckDB connection used to query JSONL files via
    `read_json_auto(...)`. Schema inference is on; results are paginated.
-2. A persistent state DB at `~/.local/state/dataset-viewer/<key>/` holding
+2. A persistent state DB at `~/.local/state/samplescope/<key>/` holding
    marks, judge presets, judge results, and chat session metadata.
 """
 from __future__ import annotations

@@ -560,59 +560,6 @@ wheels = [
 ]
 
 [[package]]
-name = "dataset-viewer"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "claude-agent-sdk" },
-    { name = "duckdb" },
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "httpx-sse" },
-    { name = "inspect-ai" },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-    { name = "sse-starlette" },
-    { name = "typer" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "playwright" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-playwright" },
-    { name = "pytest-timeout" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "claude-agent-sdk", specifier = ">=0.1" },
-    { name = "duckdb", specifier = ">=1.1" },
-    { name = "fastapi", specifier = ">=0.115" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "httpx-sse", specifier = ">=0.4" },
-    { name = "inspect-ai", specifier = ">=0.3.125" },
-    { name = "pydantic", specifier = ">=2" },
-    { name = "python-dotenv", specifier = ">=1.0" },
-    { name = "sse-starlette", specifier = ">=2.1" },
-    { name = "typer", specifier = ">=0.12" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "playwright", specifier = ">=1.48" },
-    { name = "pytest", specifier = ">=8" },
-    { name = "pytest-asyncio", specifier = ">=0.24" },
-    { name = "pytest-playwright", specifier = ">=0.5" },
-    { name = "pytest-timeout", specifier = ">=2.3" },
-    { name = "ruff", specifier = ">=0.8" },
-]
-
-[[package]]
 name = "debugpy"
 version = "1.8.21"
 source = { registry = "https://pypi.org/simple" }
@@ -2480,6 +2427,59 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/62/74/8d69dcb7a9efe8baa2046891735e5dfe433ad558ae23d9e3c14c633d1d58/s3transfer-0.14.0.tar.gz", hash = "sha256:eff12264e7c8b4985074ccce27a3b38a485bb7f7422cc8046fee9be4983e4125", size = 151547, upload-time = "2025-09-09T19:23:31.089Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/48/f0/ae7ca09223a81a1d890b2557186ea015f6e0502e9b8cb8e1813f1d8cfa4e/s3transfer-0.14.0-py3-none-any.whl", hash = "sha256:ea3b790c7077558ed1f02a3072fb3cb992bbbd253392f4b6e9e8976941c7d456", size = 85712, upload-time = "2025-09-09T19:23:30.041Z" },
+]
+
+[[package]]
+name = "samplescope"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "claude-agent-sdk" },
+    { name = "duckdb" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "httpx-sse" },
+    { name = "inspect-ai" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "sse-starlette" },
+    { name = "typer" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "playwright" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-playwright" },
+    { name = "pytest-timeout" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "claude-agent-sdk", specifier = ">=0.1" },
+    { name = "duckdb", specifier = ">=1.1" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "httpx-sse", specifier = ">=0.4" },
+    { name = "inspect-ai", specifier = ">=0.3.125" },
+    { name = "pydantic", specifier = ">=2" },
+    { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "sse-starlette", specifier = ">=2.1" },
+    { name = "typer", specifier = ">=0.12" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "playwright", specifier = ">=1.48" },
+    { name = "pytest", specifier = ">=8" },
+    { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "pytest-playwright", specifier = ">=0.5" },
+    { name = "pytest-timeout", specifier = ">=2.3" },
+    { name = "ruff", specifier = ">=0.8" },
 ]
 
 [[package]]

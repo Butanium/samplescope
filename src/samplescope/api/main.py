@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="dataset-viewer", lifespan=lifespan)
+app = FastAPI(title="samplescope", lifespan=lifespan)
 
 # Only the vite dev server is cross-origin (the packaged UI is same-origin);
 # allow any localhost port so dev proxies don't need CORS surgery.

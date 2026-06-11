@@ -1,4 +1,4 @@
-// Mirrors apps/dataset_viewer/api/models.py.
+// Mirrors apps/samplescope/api/models.py.
 
 export type DatasetEntry = {
   path: string;

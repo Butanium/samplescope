@@ -1,10 +1,10 @@
-"""`dataset-viewer` entry point: serve the API + built web UI, one process.
+"""`samplescope` entry point: serve the API + built web UI, one process.
 
 Usage:
-    dataset-viewer [DIR ...] [--port PORT] [--host HOST]
+    samplescope [DIR ...] [--port PORT] [--host HOST]
 
 Scan roots default to the current directory. CLI args are translated into the
-`DATASET_VIEWER_*` env vars before the app module is imported, so the settings
+`SAMPLESCOPE_*` env vars before the app module is imported, so the settings
 module (and any uvicorn --reload subprocess) sees a consistent config.
 """
 from __future__ import annotations
@@ -49,26 +49,26 @@ def _pick_port(host: str, requested: int | None) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="dataset-viewer",
+        prog="samplescope",
         description="Browse JSONL / CSV / inspect-ai .eval datasets in the browser.",
     )
     parser.add_argument(
         "dirs",
         nargs="*",
         type=Path,
-        help="directories to scan for datasets (default: cwd, or $DATASET_VIEWER_SCAN_ROOTS)",
+        help="directories to scan for datasets (default: cwd, or $SAMPLESCOPE_SCAN_ROOTS)",
     )
     parser.add_argument("--port", type=int, default=None, help=f"port to bind (default: first free port from {DEFAULT_PORT})")
-    parser.add_argument("--host", default=os.environ.get("DATASET_VIEWER_HOST", "127.0.0.1"), help="host to bind (default: 127.0.0.1)")
+    parser.add_argument("--host", default=os.environ.get("SAMPLESCOPE_HOST", "127.0.0.1"), help="host to bind (default: 127.0.0.1)")
     parser.add_argument("--reload", action="store_true", help="dev mode: auto-reload on source change")
     args = parser.parse_args()
 
     if args.dirs:
         dirs = [d.expanduser().resolve() for d in args.dirs]
-    elif os.environ.get("DATASET_VIEWER_SCAN_ROOTS"):
+    elif os.environ.get("SAMPLESCOPE_SCAN_ROOTS"):
         dirs = [
             Path(p).expanduser().resolve()
-            for p in os.environ["DATASET_VIEWER_SCAN_ROOTS"].split(":")
+            for p in os.environ["SAMPLESCOPE_SCAN_ROOTS"].split(":")
             if p
         ]
     else:
@@ -87,24 +87,24 @@ def main() -> None:
         print(f"already serving these directories: {existing[0].base_url} (pid {existing[0].pid})")
         return
 
-    env_port = os.environ.get("DATASET_VIEWER_PORT")
+    env_port = os.environ.get("SAMPLESCOPE_PORT")
     requested = args.port if args.port is not None else (int(env_port) if env_port else None)
     port = _pick_port(args.host, requested)
 
     # The app module reads these at import time (incl. in --reload children).
-    os.environ["DATASET_VIEWER_SCAN_ROOTS"] = ":".join(str(d) for d in dirs)
-    os.environ["DATASET_VIEWER_HOST"] = args.host
-    os.environ["DATASET_VIEWER_PORT"] = str(port)
+    os.environ["SAMPLESCOPE_SCAN_ROOTS"] = ":".join(str(d) for d in dirs)
+    os.environ["SAMPLESCOPE_HOST"] = args.host
+    os.environ["SAMPLESCOPE_PORT"] = str(port)
 
     instances.register(args.host, port, tuple(dirs))
     # finally + atexit both fire on graceful paths (idempotent); a SIGKILL'd
     # entry is pruned lazily by the next registry read.
     atexit.register(instances.unregister)
-    print(f"dataset-viewer serving {', '.join(str(d) for d in dirs)}")
+    print(f"samplescope serving {', '.join(str(d) for d in dirs)}")
     print(f"  → http://{args.host}:{port}")
     try:
         uvicorn.run(
-            "dataset_viewer.api.main:app",
+            "samplescope.api.main:app",
             host=args.host,
             port=port,
             reload=args.reload,

@@ -1,11 +1,11 @@
-"""Shared fixtures: a live dataset-viewer server over a tmp dataset dir.
+"""Shared fixtures: a live samplescope server over a tmp dataset dir.
 
 Tests run against a real uvicorn server (not TestClient) so the same fixture
 serves API tests, `viewer` CLI subprocess tests, and playwright tests —
 exercising the instance registry and static serving exactly like production.
 
 State isolation: XDG_STATE_HOME is pointed at a per-session tmp dir so tests
-never touch ~/.local/state/dataset-viewer.
+never touch ~/.local/state/samplescope.
 """
 from __future__ import annotations
 
@@ -68,12 +68,12 @@ def dataset_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="session")
 def server(dataset_dir: Path, state_home: Path):
-    """Launch `dataset-viewer <dataset_dir>` as a subprocess; yield its base URL."""
+    """Launch `samplescope <dataset_dir>` as a subprocess; yield its base URL."""
     port = _free_port()
     env = os.environ.copy()
     env["XDG_STATE_HOME"] = str(state_home)
     proc = subprocess.Popen(
-        [sys.executable, "-m", "dataset_viewer.serve", str(dataset_dir), "--port", str(port)],
+        [sys.executable, "-m", "samplescope.serve", str(dataset_dir), "--port", str(port)],
         env=env,
         cwd=REPO,
         stdout=subprocess.PIPE,

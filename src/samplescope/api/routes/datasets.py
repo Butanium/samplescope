@@ -600,7 +600,7 @@ async def sql_from_nl(payload: dict) -> dict:
 
     # SDK accepts plain aliases ("sonnet", "opus", "haiku") and resolves to the
     # current default version. Env override available for pinning specific IDs.
-    model = os.environ.get("DATASET_VIEWER_NL_MODEL") or requested_model
+    model = os.environ.get("SAMPLESCOPE_NL_MODEL") or requested_model
     try:
         from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
     except ImportError:

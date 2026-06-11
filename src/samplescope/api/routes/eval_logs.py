@@ -1,7 +1,7 @@
 """Inspect-AI .eval log reader.
 
 Renders the same per-sample structure inspect's own log viewer shows, but
-folds it into the dataset_viewer chrome so marks/judges/chat work uniformly.
+folds it into the samplescope chrome so marks/judges/chat work uniformly.
 """
 from __future__ import annotations
 

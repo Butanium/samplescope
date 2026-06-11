@@ -10,6 +10,6 @@ from pathlib import Path
 
 STATE_HOME = (
     Path(os.environ.get("XDG_STATE_HOME") or "~/.local/state").expanduser()
-    / "dataset-viewer"
+    / "samplescope"
 )
 INSTANCES_PATH = STATE_HOME / "instances.json"

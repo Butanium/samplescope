@@ -1,4 +1,4 @@
-# dataset-viewer
+# samplescope
 
 A research-focused browser for JSONL / CSV / inspect-ai `.eval` datasets.
 Point it at any directory; it auto-detects schemas and renders chat
@@ -10,9 +10,9 @@ chat that drives the UI.
 ## Install & run
 
 ```bash
-uv tool install dataset-viewer        # or: uvx dataset-viewer
-cd ~/my-project && dataset-viewer     # serve datasets under cwd
-dataset-viewer results/ logs/ --port 9000   # explicit dirs / port
+uv tool install samplescope        # or: uvx samplescope
+cd ~/my-project && samplescope     # serve datasets under cwd
+samplescope results/ logs/ --port 9000   # explicit dirs / port
 ```
 
 One process, one port — the built web UI ships inside the wheel. If the
@@ -38,7 +38,7 @@ authenticates via `ANTHROPIC_API_KEY` or a logged-in `claude` CLI session.
 - **DuckDB reads files on the fly** — no ingest step. Filters use
   `regexp_matches`, shuffling uses `ORDER BY hash(row, seed)`.
 - **Marks** (tags + free-text notes), **judge results**, and prefs persist in
-  `~/.local/state/dataset-viewer/<key>/state.duckdb`, keyed by the scan-root
+  `~/.local/state/samplescope/<key>/state.duckdb`, keyed by the scan-root
   set — annotations survive restarts and the viewed repos stay clean.
 - **Judges**: built-in presets plus user-defined ones (saved to the state
   DB). Needs `OPENAI_API_KEY` (or any inspect-ai-supported provider via the
@@ -49,9 +49,9 @@ authenticates via `ANTHROPIC_API_KEY` or a logged-in `claude` CLI session.
 
 ## `viewer` CLI
 
-Installed alongside `dataset-viewer`. It auto-discovers the running instance
+Installed alongside `samplescope`. It auto-discovers the running instance
 whose scan root contains your cwd (registry:
-`~/.local/state/dataset-viewer/instances.json`); override with
+`~/.local/state/samplescope/instances.json`); override with
 `VIEWER_BASE_URL` or `--base-url`.
 
 ```bash
@@ -74,9 +74,9 @@ Env vars (a `.env` in the launch directory is auto-loaded):
 
 - `OPENAI_API_KEY` — required for the default judge presets
 - `ANTHROPIC_API_KEY` — chat (a logged-in `claude` CLI session also works)
-- `DATASET_VIEWER_SCAN_ROOTS` — `:`-separated dirs (CLI args take precedence)
-- `DATASET_VIEWER_HOST` / `DATASET_VIEWER_PORT` — bind address
-- `DATASET_VIEWER_CHAT_MODEL` — chat model override
+- `SAMPLESCOPE_SCAN_ROOTS` — `:`-separated dirs (CLI args take precedence)
+- `SAMPLESCOPE_HOST` / `SAMPLESCOPE_PORT` — bind address
+- `SAMPLESCOPE_CHAT_MODEL` — chat model override
 - `VIEWER_BASE_URL` — `viewer` CLI target (skips instance discovery)
 
 ## Architecture

@@ -1,11 +1,11 @@
 """App-wide paths and config. Loaded once at startup.
 
-The `dataset-viewer` entry point (`serve.py`) translates CLI args into the
-`DATASET_VIEWER_*` env vars before importing this module, so env vars remain
+The `samplescope` entry point (`serve.py`) translates CLI args into the
+`SAMPLESCOPE_*` env vars before importing this module, so env vars remain
 the single configuration surface (and survive uvicorn --reload re-imports).
 
 State (marks, judge results, prefs) and caches (materialized .eval views)
-live under `~/.local/state/dataset-viewer/<key>/`, keyed by the resolved
+live under `~/.local/state/samplescope/<key>/`, keyed by the resolved
 scan-root set — annotations survive across runs and the viewed repos stay
 clean.
 """
@@ -63,7 +63,7 @@ def scan_roots_key(roots: tuple[Path, ...]) -> str:
 
 def load_settings() -> Settings:
     """Build a Settings from env + defaults. Idempotent."""
-    scan_env = os.environ.get("DATASET_VIEWER_SCAN_ROOTS")
+    scan_env = os.environ.get("SAMPLESCOPE_SCAN_ROOTS")
     if scan_env:
         roots = tuple(Path(p).expanduser().resolve() for p in scan_env.split(":") if p)
     else:
@@ -78,9 +78,9 @@ def load_settings() -> Settings:
         state_dir=state_dir,
         state_db=state_dir / "state.duckdb",
         cache_dir=cache_dir,
-        host=os.environ.get("DATASET_VIEWER_HOST", "127.0.0.1"),
-        port=int(os.environ.get("DATASET_VIEWER_PORT", "8765")),
-        chat_model=os.environ.get("DATASET_VIEWER_CHAT_MODEL"),
+        host=os.environ.get("SAMPLESCOPE_HOST", "127.0.0.1"),
+        port=int(os.environ.get("SAMPLESCOPE_PORT", "8765")),
+        chat_model=os.environ.get("SAMPLESCOPE_CHAT_MODEL"),
         openai_api_key=os.environ.get("OPENAI_API_KEY"),
         anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY"),
     )

@@ -21,7 +21,7 @@ def _viewer(args: list[str], cwd: Path, state_home: Path, **env_extra) -> subpro
     env["XDG_STATE_HOME"] = str(state_home)
     env.update(env_extra)
     return subprocess.run(
-        [sys.executable, "-m", "dataset_viewer.cli", *args],
+        [sys.executable, "-m", "samplescope.cli", *args],
         cwd=cwd,
         env=env,
         capture_output=True,
@@ -31,7 +31,7 @@ def _viewer(args: list[str], cwd: Path, state_home: Path, **env_extra) -> subpro
 
 
 def test_registry_has_server(server: str, state_home: Path, dataset_dir: Path):
-    registry = json.loads((state_home / "dataset-viewer" / "instances.json").read_text())
+    registry = json.loads((state_home / "samplescope" / "instances.json").read_text())
     ours = [i for i in registry if str(dataset_dir) in i["scan_roots"]]
     assert len(ours) == 1
     assert f"http://{ours[0]['host']}:{ours[0]['port']}" == server
@@ -74,7 +74,7 @@ def test_two_instances_route_by_cwd(server: str, state_home: Path, dataset_dir: 
     env = os.environ.copy()
     env["XDG_STATE_HOME"] = str(state_home)
     proc = subprocess.Popen(
-        [sys.executable, "-m", "dataset_viewer.serve", str(second_dir), "--port", str(port)],
+        [sys.executable, "-m", "samplescope.serve", str(second_dir), "--port", str(port)],
         env=env,
         cwd=REPO,
         stdout=subprocess.PIPE,
@@ -121,7 +121,7 @@ def test_same_roots_relaunch_is_idempotent(server: str, state_home: Path, datase
     env = os.environ.copy()
     env["XDG_STATE_HOME"] = str(state_home)
     r = subprocess.run(
-        [sys.executable, "-m", "dataset_viewer.serve", str(dataset_dir)],
+        [sys.executable, "-m", "samplescope.serve", str(dataset_dir)],
         env=env,
         cwd=REPO,
         capture_output=True,

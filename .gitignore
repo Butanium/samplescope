@@ -11,10 +11,10 @@ web/dist/
 web/tsconfig.tsbuildinfo
 
 # Built frontend staged into the package by the hatch build hook
-src/dataset_viewer/web_dist/
+src/samplescope/web_dist/
 
 # Local state (never written here in normal operation — state lives in
-# ~/.local/state/dataset-viewer — but guard against accidents)
+# ~/.local/state/samplescope — but guard against accidents)
 .cache/
 
 .env

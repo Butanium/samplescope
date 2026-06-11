@@ -1,4 +1,4 @@
-"""`viewer` CLI — drives the dataset viewer through its HTTP API.
+"""`viewer` CLI — drives samplescope through its HTTP API.
 
 Designed for two callers:
   - a human, from a terminal, as a real interactive tool.
@@ -29,7 +29,7 @@ from httpx_sse import connect_sse
 app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
-    help="Drive the dataset-viewer over its HTTP API.",
+    help="Drive the samplescope over its HTTP API.",
 )
 
 
@@ -38,7 +38,7 @@ HTTP_TIMEOUT = 60.0
 
 # Resolved lazily (and cached) so plain `viewer --help` never touches the
 # instance registry. Precedence: --base-url > $VIEWER_BASE_URL > discovery
-# via ~/.local/state/dataset-viewer/instances.json (instance whose scan root
+# via ~/.local/state/samplescope/instances.json (instance whose scan root
 # contains cwd).
 _BASE_URL_OVERRIDE: str | None = None
 _BASE_URL: str | None = None

@@ -1,4 +1,4 @@
-# dataset-viewer — implementation notes
+# samplescope — implementation notes
 
 README.md is the user quickstart. This file is for design decisions that
 aren't self-evident from the code. Extracted 2026-06-11 from
@@ -8,21 +8,21 @@ for the verbatim import; everything after is the standalone adaptation).
 ## Standalone packaging
 
 - **One process serves API + UI.** The hatch build hook (`hatch_build.py`)
-  compiles `web/` and stages it at `src/dataset_viewer/web_dist/`, which the
+  compiles `web/` and stages it at `src/samplescope/web_dist/`, which the
   wheel embeds. `api/main.py` mounts it at `/` AFTER the routers, so `/api/*`
   wins. In a source checkout without a wheel build, `web/dist` (if built) is
   served instead; the vite dev server is for frontend development only.
 - **Config flows through env vars.** `serve.py` translates CLI args into
-  `DATASET_VIEWER_*` env vars *before* importing the app, because
+  `SAMPLESCOPE_*` env vars *before* importing the app, because
   `api/settings.py` resolves `SETTINGS` at import time and uvicorn `--reload`
   re-imports in a child process (env survives; function args wouldn't).
-- **State lives in `~/.local/state/dataset-viewer/<key>/`**, keyed by a hash
+- **State lives in `~/.local/state/samplescope/<key>/`**, keyed by a hash
   of the resolved scan-root set (`settings.scan_roots_key`). Same dirs →
   same marks/judges/prefs across restarts; different dir sets are isolated.
   The materialized-`.eval` cache lives in `<key>/cache/`.
 - **Instance discovery** (`instances.py`): servers register
   `{pid, host, port, scan_roots}` in
-  `~/.local/state/dataset-viewer/instances.json` (flock-serialized; stale
+  `~/.local/state/samplescope/instances.json` (flock-serialized; stale
   pids pruned on every read). The `viewer` CLI picks the instance whose
   deepest scan root contains cwd; one running instance is used as fallback;
   real ambiguity errors out listing candidates. `VIEWER_BASE_URL` /

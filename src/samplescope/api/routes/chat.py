@@ -74,7 +74,7 @@ def _fork_session_jsonl(sdk_session_id: str) -> str | None:
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 CLI_INTRO = """\
-A `viewer` CLI is available via Bash; it drives the dataset viewer the user is looking at.
+A `viewer` CLI is available via Bash; it drives the samplescope viewer the user is looking at.
 Prefer it for any dataset operation:
   viewer ls                                  # discover datasets
   viewer info <path>                         # row count + columns + view kind
@@ -98,7 +98,7 @@ Run `viewer --help` for more. Use Read/Edit on Python source only when changing 
 # Viewer schema conventions
 
 When generating JSONL files the user will browse here, pick a schema that lets
-the viewer auto-detect a useful view (see `dataset_viewer/api/schema_detect.py`):
+the viewer auto-detect a useful view (see `samplescope/api/schema_detect.py`):
 
 - **Chat view (preferred for prompt/completion pairs)** — every row carries a
   `messages: [{role, content}, ...]` list. The conversation renders as bubbles;
@@ -240,7 +240,7 @@ def _build_options(permission_mode: str, resume: str | None = None) -> ClaudeAge
         # (cheaper than always-on for trivial turns). `display="summarized"` is
         # the unlock for readable text in ThinkingBlock.thinking — without it
         # the SDK only returns the encrypted signature and the UI shows an
-        # empty collapsible. See apps/dataset_viewer/CLAUDE.md for the probe
+        # empty collapsible. See CLAUDE.md for the probe
         # that established this.
         thinking={"type": "adaptive", "display": "summarized"},
         # The SDK's stdio transport ships each CLI message as a single JSON
