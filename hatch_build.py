@@ -28,6 +28,11 @@ class WebDistBuildHook(BuildHookInterface):
     def initialize(self, version: str, build_data: dict) -> None:
         if self.target_name != "wheel":
             return
+        # Editable installs run straight from the source tree, where the API
+        # serves `web/dist` directly — no need to compile/stage anything.
+        # (`npm run build` after frontend edits + a browser refresh is the loop.)
+        if version == "editable":
+            return
         root = Path(self.root)
         web = root / "web"
         staged = root / "src" / "samplescope" / "web_dist"

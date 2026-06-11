@@ -10,12 +10,14 @@ aren't self-evident from the code.
   wheel embeds. `api/main.py` mounts it at `/` AFTER the routers, so `/api/*`
   wins. In a source checkout without a wheel build, `web/dist` (if built) is
   served instead; the vite dev server is for frontend development only.
-- **Reinstalling after source edits needs a cache bust.** `uv tool install
-  --force --from .` can reuse a cached wheel of the local source and silently
-  install stale code. Use
-  `uv tool install --force --reinstall --refresh-package samplescope --from . samplescope`
-  (add `SAMPLESCOPE_SKIP_WEB_BUILD=1` + manual `cp -r web/dist
-  src/samplescope/web_dist` to reuse an already-built frontend).
+- **Dev install is editable** (`uv tool install --force -e .`): the tool venv
+  imports straight from `src/`, and `_web_dist()` prefers the checkout's
+  `web/dist` over the staged wheel copy. Dev loop: python edit → restart
+  `sscope`; frontend edit → `npm run build` → browser refresh. No reinstall
+  unless dependencies change. (Non-editable installs from a local path need a
+  cache bust: `uv tool install --force --reinstall --refresh-package
+  samplescope --from . samplescope` — uv happily reuses a stale cached wheel
+  otherwise.) The hatch hook skips the npm build for editable installs.
 - **Config flows through env vars.** `serve.py` translates CLI args into
   `SAMPLESCOPE_*` env vars *before* importing the app, because
   `api/settings.py` resolves `SETTINGS` at import time and uvicorn `--reload`

@@ -757,14 +757,19 @@ def cmd_plot_add(
             kind = "image"
         else:
             _die(f"unsupported extension {ext}; use .pdf or an image type")
-        # Resolve to repo-relative — the API only serves files under the repo root.
+        # Resolve relative to the SERVER's serving root (the API only serves
+        # files under it). Asking the server is the only correct source: the
+        # CLI may be installed anywhere (uv tool venv, symlinked cache, …)
+        # and its own location says nothing about what the server serves.
         from pathlib import Path as _P
-        repo_root = _P(__file__).resolve().parents[2]
+        root = _P(str(_get("/api/health").get("root", "")))
+        if not str(root):
+            _die("server did not report its serving root (upgrade the server)")
         abs_p = file.resolve()
         try:
-            rel = abs_p.relative_to(repo_root).as_posix()
+            rel = abs_p.relative_to(root).as_posix()
         except ValueError:
-            _die(f"file must live under repo root ({repo_root})")
+            _die(f"file must live under the server's serving root ({root})")
         body = {"kind": kind, "source_path": rel, "title": title or file.name}
     else:
         try:

@@ -10,7 +10,7 @@ import asyncio
 import dataclasses
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, HTTPException
@@ -150,15 +150,35 @@ class Session:
     `in_turn` is informational only — flipped by tracking ResultMessage in
     the listener — so the UI can grey out the send button label or show a
     spinner without having to infer state from the event stream.
+
+    Events fan out to per-connection `subscribers` queues. A single shared
+    queue would make concurrent SSE consumers (two browsers on the same
+    session, or a stale connection during drawer reopen) COMPETE for events —
+    each message delivered to exactly one of them, the rest seeing silent
+    gaps ("queued…" forever while answers only show up after a reload).
     """
     id: str
     client: ClaudeSDKClient
-    queue: asyncio.Queue
     permission_mode: str
     model: str | None = None
+    subscribers: list[asyncio.Queue] = field(default_factory=list)
     listener_task: asyncio.Task | None = None
     in_turn: bool = False
     seq: int = 0
+
+    def publish(self, evt: dict) -> None:
+        """Broadcast one event to every live SSE connection, never blocking
+        the listener. A slow consumer loses its oldest event rather than
+        stalling the session (history in DuckDB is the source of truth)."""
+        for q in list(self.subscribers):
+            try:
+                q.put_nowait(evt)
+            except asyncio.QueueFull:
+                try:
+                    q.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+                q.put_nowait(evt)
 
 
 SESSIONS: dict[str, Session] = {}
@@ -279,8 +299,7 @@ async def _spawn_session(
     """Allocate a Session: build options, connect the SDK, start the listener."""
     client = ClaudeSDKClient(options=_build_options(permission_mode, resume=resume, model=model))
     await client.connect()
-    queue: asyncio.Queue = asyncio.Queue(maxsize=512)
-    sess = Session(id=sid, client=client, queue=queue, permission_mode=permission_mode, model=model)
+    sess = Session(id=sid, client=client, permission_mode=permission_mode, model=model)
     sess.listener_task = asyncio.create_task(_listen(sess))
     SESSIONS[sid] = sess
     return sess
@@ -404,12 +423,12 @@ async def _listen(sess: Session) -> None:
             # fresh sessions show "Claude is thinking…" before any user input.
             if not sess.in_turn and not isinstance(msg, (ResultMessage, SystemMessage)):
                 sess.in_turn = True
-                await sess.queue.put({"type": "turn_start"})
+                sess.publish({"type": "turn_start"})
             payload = _serialize_message(msg)
             if payload is None:
                 continue
             _persist(sess.id, payload)
-            await sess.queue.put({"type": "message", "payload": payload})
+            sess.publish({"type": "message", "payload": payload})
             # Capture the SDK's session UUID — but only ONCE per viewer
             # session. Each subprocess invocation (including each resume)
             # gets a fresh runtime UUID that doesn't correspond to a JSONL
@@ -428,11 +447,11 @@ async def _listen(sess: Session) -> None:
                         )
             if isinstance(msg, ResultMessage):
                 sess.in_turn = False
-                await sess.queue.put({"type": "turn_end"})
+                sess.publish({"type": "turn_end"})
     except asyncio.CancelledError:
         raise
     except Exception as e:
-        await sess.queue.put({"type": "error", "payload": {"error": f"{type(e).__name__}: {e}"}})
+        sess.publish({"type": "error", "payload": {"error": f"{type(e).__name__}: {e}"}})
 
 
 @router.post("/sessions/{sid}/permission_mode")
@@ -538,7 +557,7 @@ async def send_message(sid: str, req: ChatMessageRequest) -> dict:
         "mid_turn": mid_turn,
     }
     _persist(sid, user_payload)
-    await sess.queue.put({"type": "user_input", "payload": user_payload})
+    sess.publish({"type": "user_input", "payload": user_payload})
     # Fire-and-forget into the SDK's transport. The session's long-running
     # listener picks up responses; if a turn is already in flight, the SDK
     # writes the new user message onto the same stream and the underlying
@@ -558,7 +577,7 @@ async def interrupt_session(sid: str) -> dict:
     try:
         await sess.client.interrupt()
     except Exception as e:
-        await sess.queue.put({"type": "error", "payload": {"error": f"interrupt failed: {type(e).__name__}: {e}"}})
+        sess.publish({"type": "error", "payload": {"error": f"interrupt failed: {type(e).__name__}: {e}"}})
         return {"ok": False, "error": str(e)}
     return {"ok": True}
 
@@ -571,12 +590,21 @@ async def session_events(sid: str) -> EventSourceResponse:
         raise HTTPException(404, f"session {sid} not found")
 
     async def gen() -> AsyncIterator[dict]:
-        while True:
-            try:
-                evt = await asyncio.wait_for(sess.queue.get(), timeout=15.0)
-                yield {"event": evt["type"], "data": json.dumps(evt.get("payload", {}))}
-            except asyncio.TimeoutError:
-                yield {"event": "ping", "data": "{}"}
+        # Own queue per connection — see Session.publish. sse-starlette
+        # cancels the generator on client disconnect, so the finally
+        # reliably unregisters.
+        q: asyncio.Queue = asyncio.Queue(maxsize=512)
+        sess.subscribers.append(q)
+        try:
+            while True:
+                try:
+                    evt = await asyncio.wait_for(q.get(), timeout=15.0)
+                    yield {"event": evt["type"], "data": json.dumps(evt.get("payload", {}))}
+                except asyncio.TimeoutError:
+                    yield {"event": "ping", "data": "{}"}
+        finally:
+            if q in sess.subscribers:
+                sess.subscribers.remove(q)
 
     return EventSourceResponse(gen())
 

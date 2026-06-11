@@ -23,7 +23,9 @@ dependencies = [
     "inspect-ai>=0.3.125",
     # Embedded Claude chat drawer + NL→SQL. A default dependency; the app
     # still degrades gracefully if the import breaks (501 + health flag).
-    "claude-agent-sdk>=0.1",
+    # >=0.2.97: first SDK whose *bundled* CLI (2.1.173) knows the `fable`
+    # model alias — matters on machines without a global claude install.
+    "claude-agent-sdk>=0.2.97",
 ]
 
 [project.urls]
@@ -58,6 +60,14 @@ exclude = [
     "web/dist/**",
     "web/tsconfig.tsbuildinfo",
 ]
+
+[tool.uv]
+# One-package exemption from the global 7-day release-age gate (approved by
+# Clément 2026-06-11): claude-agent-sdk 0.2.97 was released same-day but is
+# needed for its bundled CLI's fable support. The frozen cutoff keeps the
+# gate active for anything published after it; safe to delete after 2026-06-18
+# (when 0.2.97 ages past the gate naturally).
+exclude-newer-package = { claude-agent-sdk = "2026-06-12T00:00:00Z" }
 
 [dependency-groups]
 dev = [

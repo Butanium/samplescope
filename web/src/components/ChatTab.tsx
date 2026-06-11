@@ -98,18 +98,12 @@ export default function ChatTab({ id, active, readOnlyHistorical = false }: Chat
     else if (event === "turn_end") setPhase("idle");
   }, []);
 
-  const openSse = useCallback(() => {
-    sseUnsubRef.current?.();
-    sseUnsubRef.current = sse(`/api/chat/sessions/${id}/events`, handleSseEvent);
-  }, [id, handleSseEvent]);
-
-  // Rehydrate from backend history on mount, then subscribe to SSE.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
+  // Rebuild the timeline from persisted history. Also the recovery path
+  // after an SSE outage: events dropped while dark are persisted server-side,
+  // so a reload of history heals any gap.
+  const loadHistory = useCallback(async () => {
       try {
         const hist = await api.sessionHistory(id);
-        if (cancelled) return;
         if (hist.length > 0) {
           const display: DisplayMessage[] = [];
           toolResultsRef.current = new Map();
@@ -153,14 +147,51 @@ export default function ChatTab({ id, active, readOnlyHistorical = false }: Chat
       } catch {
         // Backend may have evicted a session — leave UI in fresh state.
       }
-      if (cancelled) return;
+  // id is the identity of this tab — we never change it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  // Guards the re-attach path so overlapping error events schedule one retry.
+  const reconnectingRef = useRef(false);
+
+  const openSse = useCallback(() => {
+    sseUnsubRef.current?.();
+    sseUnsubRef.current = sse(`/api/chat/sessions/${id}/events`, handleSseEvent, (_, es) => {
+      // CONNECTING = transient blip, the browser retries on its own. CLOSED =
+      // EventSource gave up for good — happens on any HTTP error, typically
+      // the 404 after a server restart wiped the in-memory session. Resume
+      // it, reload history (live events were dropped while dark), resubscribe.
+      if (es.readyState !== EventSource.CLOSED || reconnectingRef.current) return;
+      reconnectingRef.current = true;
+      setTimeout(async () => {
+        try {
+          const r = await api.resumeSession(id);
+          // A turn that was in flight died with the old server process.
+          if (!r.already_live) setPhase("idle");
+          await loadHistory();
+          openSse();
+        } catch {
+          setMessages((prev) => [...prev, {
+            kind: "error",
+            message: "live stream lost and re-attach failed — reload the page or send a message to retry",
+          }]);
+        } finally {
+          reconnectingRef.current = false;
+        }
+      }, 1500);
+    });
+  }, [id, handleSseEvent, loadHistory]);
+
+  // Rehydrate from backend history on mount, then subscribe to SSE.
+  useEffect(() => {
+    (async () => {
+      await loadHistory();
       // Read-only tabs (un-resumable historical sessions) have no live SDK
       // client on the backend, so subscribing to /events would just 404.
       if (readOnlyHistorical) return;
       openSse();
     })();
     return () => {
-      cancelled = true;
       sseUnsubRef.current?.();
       sseUnsubRef.current = null;
     };

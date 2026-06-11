@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .duck import get_conn
 from .routes import datasets, eval_logs, highlights, judges, marks, metrics, plots, prefs, state
+from .settings import SETTINGS
 
 # claude-agent-sdk is a default dependency, but degrade gracefully anyway if
 # its import breaks: probe the route module import and fall back to a 501
@@ -66,18 +67,25 @@ else:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"ok": True, "chat_available": chat is not None}
+    # `root` lets clients (e.g. the `viewer` CLI) relativize local file paths
+    # against the server's serving root instead of guessing it locally.
+    return {"ok": True, "chat_available": chat is not None, "root": str(SETTINGS.root)}
 
 
 def _web_dist() -> Path | None:
-    """Locate the built frontend: packaged `web_dist/` (wheel) or `web/dist`
-    (source checkout where `npm run build` has been run)."""
-    packaged = Path(__file__).resolve().parents[1] / "web_dist"
-    if (packaged / "index.html").exists():
-        return packaged
+    """Locate the built frontend.
+
+    Source checkouts (editable installs) prefer `web/dist` — the live vite
+    build output — over `src/samplescope/web_dist`, which is a stale staging
+    copy left behind by previous wheel builds. Wheel installs have no
+    `web/` sibling, so they fall through to the packaged copy.
+    """
     checkout = Path(__file__).resolve().parents[3] / "web" / "dist"
     if (checkout / "index.html").exists():
         return checkout
+    packaged = Path(__file__).resolve().parents[1] / "web_dist"
+    if (packaged / "index.html").exists():
+        return packaged
     return None
 
 

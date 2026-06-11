@@ -170,7 +170,10 @@ export const api = {
 export function sse(
   path: string,
   onEvent: (event: string, data: any) => void,
-  onError?: (e: Event) => void,
+  // Receives the EventSource so callers can distinguish a transient blip
+  // (readyState CONNECTING — the browser retries on its own) from a permanent
+  // failure (CLOSED — e.g. HTTP 404 after a server restart, no auto-retry).
+  onError?: (e: Event, es: EventSource) => void,
 ): () => void {
   const es = new EventSource(path);
   const handler = (event: string) => (e: MessageEvent) => {
@@ -187,6 +190,6 @@ export function sse(
   ]) {
     es.addEventListener(evt, handler(evt) as any);
   }
-  es.onerror = (e) => onError?.(e);
+  es.onerror = (e) => onError?.(e, es);
   return () => es.close();
 }
