@@ -93,7 +93,13 @@ class HighlightRule(BaseModel):
     id: str
     name: str
     enabled: bool = True
-    pattern: str
+    # `patterns` is the source of truth; `pattern` is kept as the legacy single
+    # value (= patterns[0]) for back-compat with anything still reading it.
+    patterns: list[str] = []
+    pattern: str = ""
+    # How multiple patterns combine: "or" paints any match; "and" paints all
+    # matches only when every pattern is present in the scoped text.
+    combinator: str = "or"
     is_regex: bool = False
     case_sensitive: bool = False
     color: str

@@ -7,6 +7,8 @@ overlapping highlights deterministically (earlier rule wins).
 """
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, HTTPException
 
 from ..duck import cursor
@@ -15,19 +17,33 @@ from ..models import HighlightRule
 router = APIRouter(prefix="/api/highlights", tags=["highlights"])
 
 
+# New columns (patterns, combinator) appended at the end so the leading indices
+# match the legacy layout.
 _COLUMNS = (
     "id, name, enabled, pattern, is_regex, case_sensitive, color, "
-    "scope_role, scope_column, condition, sort_order"
+    "scope_role, scope_column, condition, sort_order, patterns, combinator"
 )
 
 
 def _row_to_rule(r: tuple) -> HighlightRule:
     """Hydrate a DB row tuple into a HighlightRule."""
+    patterns: list[str] = []
+    if r[11]:
+        try:
+            parsed = json.loads(r[11])
+            if isinstance(parsed, list):
+                patterns = [str(p) for p in parsed if str(p)]
+        except (json.JSONDecodeError, TypeError):
+            patterns = []
+    if not patterns and r[3]:
+        patterns = [r[3]]  # legacy single-pattern row
     return HighlightRule(
         id=r[0],
         name=r[1],
         enabled=bool(r[2]),
-        pattern=r[3],
+        pattern=r[3] or "",
+        patterns=patterns,
+        combinator=(r[12] or "or"),
         is_regex=bool(r[4]),
         case_sensitive=bool(r[5]),
         color=r[6],
@@ -51,12 +67,21 @@ def list_rules() -> list[HighlightRule]:
 def upsert_rule(rule_id: str, payload: dict) -> HighlightRule:
     """Create or replace a rule. ``rule_id`` in the URL wins over body.id."""
     name = (payload.get("name") or "").strip()
-    pattern = payload.get("pattern") or ""
     color = payload.get("color") or "#fde047"
+    # `patterns` (list) is authoritative; fall back to a single `pattern` for
+    # older clients. Empty strings are dropped.
+    raw_patterns = payload.get("patterns")
+    if isinstance(raw_patterns, list):
+        patterns = [str(p) for p in raw_patterns if str(p).strip() != ""]
+    else:
+        single = payload.get("pattern") or ""
+        patterns = [single] if single else []
+    combinator = "and" if payload.get("combinator") == "and" else "or"
     if not name:
         raise HTTPException(400, "name required")
-    if not pattern:
-        raise HTTPException(400, "pattern required")
+    if not patterns:
+        raise HTTPException(400, "at least one pattern required")
+    pattern = patterns[0]  # legacy column mirror
 
     with cursor() as cur:
         existing_order = cur.execute(
@@ -74,14 +99,17 @@ def upsert_rule(rule_id: str, payload: dict) -> HighlightRule:
         cur.execute(
             """
             INSERT INTO state.highlight_rules(
-                id, name, enabled, pattern, is_regex, case_sensitive, color,
-                scope_role, scope_column, condition, sort_order, created_at
+                id, name, enabled, pattern, patterns, combinator, is_regex,
+                case_sensitive, color, scope_role, scope_column, condition,
+                sort_order, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp)
             ON CONFLICT (id) DO UPDATE SET
                 name = excluded.name,
                 enabled = excluded.enabled,
                 pattern = excluded.pattern,
+                patterns = excluded.patterns,
+                combinator = excluded.combinator,
                 is_regex = excluded.is_regex,
                 case_sensitive = excluded.case_sensitive,
                 color = excluded.color,
@@ -95,6 +123,8 @@ def upsert_rule(rule_id: str, payload: dict) -> HighlightRule:
                 name,
                 bool(payload.get("enabled", True)),
                 pattern,
+                json.dumps(patterns),
+                combinator,
                 bool(payload.get("is_regex", False)),
                 bool(payload.get("case_sensitive", False)),
                 color,

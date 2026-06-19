@@ -114,6 +114,8 @@ def _init_state_schema(conn: duckdb.DuckDBPyConnection) -> None:
             name VARCHAR NOT NULL,
             enabled BOOLEAN NOT NULL DEFAULT true,
             pattern VARCHAR NOT NULL,
+            patterns VARCHAR,
+            combinator VARCHAR NOT NULL DEFAULT 'or',
             is_regex BOOLEAN NOT NULL DEFAULT false,
             case_sensitive BOOLEAN NOT NULL DEFAULT false,
             color VARCHAR NOT NULL,
@@ -124,6 +126,14 @@ def _init_state_schema(conn: duckdb.DuckDBPyConnection) -> None:
             sort_order INTEGER NOT NULL DEFAULT 0
         )
     """)
+    # Migrate older highlight_rules tables: `patterns` (JSON array) + `combinator`
+    # were added after the single-`pattern` schema. Existing rows fall back to
+    # [pattern] when `patterns` is NULL (handled on read).
+    for _ddl in (
+        "ALTER TABLE state.highlight_rules ADD COLUMN IF NOT EXISTS patterns VARCHAR",
+        "ALTER TABLE state.highlight_rules ADD COLUMN IF NOT EXISTS combinator VARCHAR DEFAULT 'or'",
+    ):
+        conn.execute(_ddl)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS state.chat_sessions (
             session_id VARCHAR PRIMARY KEY,
