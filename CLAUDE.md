@@ -106,32 +106,28 @@ aren't self-evident from the code.
   controls only the composer's disabled state — don't conflate with history
   loading.
 
-## Verifying changes (don't fly blind on UI work)
+## Verifying changes
 
-The fastest loop for confirming a change actually renders/behaves correctly,
-without touching the user's running instances:
-
-- **Spin up a throwaway instance on a distinct port with an isolated state dir.**
-  `state.duckdb` is **single-writer locked** — opening a second connection
-  against a running instance's state dir (its `~/.local/state/samplescope/<key>/`)
-  fails with a DuckDB lock IOException. So: `export XDG_STATE_HOME=$(mktemp -d)`
-  then `sscope <scan-root> --port 8799` (pick a port the user isn't on; check
-  `ss -ltn`). Isolated state also means marks/judges/prefs/highlights start
-  empty, which is usually what you want for a clean check.
-- **Same trick for quick backend checks**: set `SAMPLESCOPE_SCAN_ROOTS` +
-  `XDG_STATE_HOME=$(mktemp -d)` and import the route functions directly
-  (`from samplescope.api.routes.datasets import dataset_info, read_one_row`),
-  or hit the throwaway server with `curl`.
-- **Screenshots**: Playwright + a cached chromium are available
-  (`uv run python` with `from playwright.sync_api import sync_playwright`). Drive
-  `http://127.0.0.1:8799/?path=<urlencoded-rel>&drawer=highlights&...` — the URL
-  is the full view state (see `url.ts`), so you can deep-link any view. Gotchas:
-  `get_by_role("button", name=...)` is substring-matched, so tree file rows leak
-  into matches (use `exact=True` and/or scope with `get_by_role("main")`).
-- **Build from `web/`, not the repo root** (`cd web && npm run build`); running
-  it at the root fails on missing `package.json` and silently looks "passed" if
-  you only check the wrapping shell's exit code. Backend change → restart the
-  server; frontend change → rebuild + hard-refresh (the editable install serves
-  `web/dist` from disk per request).
-- Clean up the throwaway server (`pkill -f "samplescope.*8799"`) and any demo
-  files when done; never leave test files inside the user's scan roots.
+- **Automated tests hit a real server.** `tests/conftest.py` boots a live
+  uvicorn `sscope` over a tmp dataset dir (session-scoped `server` fixture) with
+  `XDG_STATE_HOME` isolated to a tmp dir, so API tests, `viewer` CLI subprocess
+  tests, and the pytest-playwright UI smokes (`tests/test_web.py`) all exercise
+  production-like static serving + the instance registry. Add a regression test
+  here for new behavior. `test_web.py` skips cleanly when `web/dist` isn't built;
+  Playwright is a declared dep (`pyproject.toml`) — `playwright install chromium`
+  once if the browser is missing.
+- **To eyeball a rendering interactively** (vs assert), spin up a throwaway
+  instance and screenshot it — same isolation reason as the fixture:
+  `state.duckdb` is **single-writer locked**, so you can't open a second
+  connection against a running instance's state dir. `export
+  XDG_STATE_HOME=$(mktemp -d); sscope <scan-root> --port 8799` (a port the user
+  isn't on — check `ss -ltn`; never disturb their instances), then a small
+  `sync_playwright()` script. The URL is the full view state (`url.ts`), so you
+  can deep-link any view: `?path=<urlenc-rel>&drawer=highlights&mode=single`.
+- **Gotchas.** Build from `web/` (`cd web && npm run build`); at the repo root it
+  errors on a missing `package.json`, and a `$?` check on the *wrapping* shell
+  reads as a false pass. `get_by_role("button", name=…)` is substring-matched, so
+  tree file rows leak into matches — use `exact=True` / scope with
+  `get_by_role("main")`. Backend change → restart the server; frontend → rebuild
+  + hard-refresh (editable install serves `web/dist` from disk per request).
+  Clean up the throwaway server + any test files (never leave them in a scan root).
