@@ -50,6 +50,19 @@ aren't self-evident from the code.
 
 ## Viewer internals
 
+- **View kind vs render mode.** `detect_view` (`api/schema_detect.py`) sniffs
+  the first rows and returns a `view_kind` (chat / table / metrics / eval_log /
+  json) plus meta `numeric_cols` + `tabular`. Heuristics worth knowing: flat
+  rows carrying long free-text (prompt/response/thinking) → `json` (per-sample
+  *cards*, not the truncating spreadsheet); a flat numeric log is only `metrics`
+  if `step` is ~unique per row AND there's no long text (otherwise it's
+  per-sample data that merely has a `step`). `Layout.tsx`'s `ViewSwitch` then
+  turns `view_kind` + `numeric_cols`/`tabular` into a **samples / table / plot**
+  toggle over the *same* dataset; `JsonTreeView` adds a **single / scroll**
+  (feed, virtualized) sub-toggle sharing `url.viewMode` with the chat view.
+  So "what you see" = detection default, overridable client-side; nothing is
+  locked to one renderer.
+
 - **Navigation steps through visible order, not `row_idx ± 1`.**
   `web/src/lib/nav.ts` is a module-level cursor; views publish their
   `indexPage.indices` into it; `Layout` arrow handlers + the header next/prev
@@ -92,3 +105,33 @@ aren't self-evident from the code.
   `/api/chat/sessions/{id}/history` on every mount. `readOnlyHistorical`
   controls only the composer's disabled state — don't conflate with history
   loading.
+
+## Verifying changes (don't fly blind on UI work)
+
+The fastest loop for confirming a change actually renders/behaves correctly,
+without touching the user's running instances:
+
+- **Spin up a throwaway instance on a distinct port with an isolated state dir.**
+  `state.duckdb` is **single-writer locked** — opening a second connection
+  against a running instance's state dir (its `~/.local/state/samplescope/<key>/`)
+  fails with a DuckDB lock IOException. So: `export XDG_STATE_HOME=$(mktemp -d)`
+  then `sscope <scan-root> --port 8799` (pick a port the user isn't on; check
+  `ss -ltn`). Isolated state also means marks/judges/prefs/highlights start
+  empty, which is usually what you want for a clean check.
+- **Same trick for quick backend checks**: set `SAMPLESCOPE_SCAN_ROOTS` +
+  `XDG_STATE_HOME=$(mktemp -d)` and import the route functions directly
+  (`from samplescope.api.routes.datasets import dataset_info, read_one_row`),
+  or hit the throwaway server with `curl`.
+- **Screenshots**: Playwright + a cached chromium are available
+  (`uv run python` with `from playwright.sync_api import sync_playwright`). Drive
+  `http://127.0.0.1:8799/?path=<urlencoded-rel>&drawer=highlights&...` — the URL
+  is the full view state (see `url.ts`), so you can deep-link any view. Gotchas:
+  `get_by_role("button", name=...)` is substring-matched, so tree file rows leak
+  into matches (use `exact=True` and/or scope with `get_by_role("main")`).
+- **Build from `web/`, not the repo root** (`cd web && npm run build`); running
+  it at the root fails on missing `package.json` and silently looks "passed" if
+  you only check the wrapping shell's exit code. Backend change → restart the
+  server; frontend change → rebuild + hard-refresh (the editable install serves
+  `web/dist` from disk per request).
+- Clean up the throwaway server (`pkill -f "samplescope.*8799"`) and any demo
+  files when done; never leave test files inside the user's scan roots.
