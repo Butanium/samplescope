@@ -53,7 +53,8 @@ function emptyDraft(): Draft {
     id: shortId(),
     name: "untitled",
     enabled: true,
-    pattern: "",
+    patterns: [],
+    combinator: "or",
     is_regex: false,
     case_sensitive: false,
     color: PALETTE[0],
@@ -333,7 +334,22 @@ function RuleRow(props: {
           {rule.scope_role && <span className="text-cyan-600 dark:text-cyan-400 mr-1">@{rule.scope_role}</span>}
           {rule.scope_column && <span className="text-pink-500 mr-1">[{rule.scope_column}]</span>}
           {rule.condition && <span className="text-zinc-400 mr-1" title={rule.condition}>ƒ</span>}
-          <span className="text-zinc-600 dark:text-zinc-400">{rule.pattern || "(empty)"}</span>
+          {(() => {
+            const pats = rule.patterns?.length ? rule.patterns : (rule.pattern ? [rule.pattern] : []);
+            if (pats.length > 1) {
+              return (
+                <span className="text-zinc-600 dark:text-zinc-400">
+                  {pats.map((p, i) => (
+                    <span key={i}>
+                      {i > 0 && <span className={rule.combinator === "and" ? "text-violet-500" : "text-emerald-500"}> {rule.combinator} </span>}
+                      {p}
+                    </span>
+                  ))}
+                </span>
+              );
+            }
+            return <span className="text-zinc-600 dark:text-zinc-400">{pats[0] || "(empty)"}</span>;
+          })()}
         </div>
       </div>
 
@@ -422,17 +438,76 @@ function RuleEditor(props: {
   error: string | null;
 }) {
   const { draft, setDraft, onSave, onCancel, saving, error } = props;
+  const patterns = draft.patterns ?? [];
+
+  const setPatternAt = (i: number, val: string) => {
+    const next = [...patterns];
+    next[i] = val;
+    setDraft({ ...draft, patterns: next });
+  };
+  const removePatternAt = (i: number) =>
+    setDraft({ ...draft, patterns: patterns.filter((_, j) => j !== i) });
+  const toggleCombinator = () =>
+    setDraft({ ...draft, combinator: draft.combinator === "and" ? "or" : "and" });
 
   return (
     <div className="px-3 py-3 space-y-2.5 text-xs bg-zinc-50/70 dark:bg-zinc-950/70">
-      <Labeled label="pattern">
-        <textarea
-          value={draft.pattern}
-          onChange={(e) => setDraft({ ...draft, pattern: e.target.value })}
-          rows={2}
-          placeholder={draft.is_regex ? "regex source, e.g. \\bfish(es)?\\b" : "literal substring"}
-          className="w-full px-2 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded font-mono text-[11px] outline-none focus:border-emerald-500 resize-y"
-        />
+      <Labeled label="patterns">
+        {/* Always render one trailing empty input so typing into it adds the next
+            pattern. The clickable connector between rows is the or/and toggle. */}
+        <div className="space-y-1">
+          {[...patterns, ""].map((p, i) => (
+            <div key={i}>
+              {i > 0 && (
+                <div className="flex justify-center py-0.5">
+                  <button
+                    onClick={toggleCombinator}
+                    title="how patterns combine — click to switch or / and"
+                    className={cn(
+                      "px-2 py-0.5 rounded text-[9px] font-mono uppercase tracking-wider transition-colors",
+                      draft.combinator === "and"
+                        ? "bg-violet-500/15 text-violet-700 dark:text-violet-300"
+                        : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+                    )}
+                  >
+                    {draft.combinator}
+                  </button>
+                </div>
+              )}
+              <div className="flex items-center gap-1.5">
+                <input
+                  value={p}
+                  onChange={(e) => setPatternAt(i, e.target.value)}
+                  spellCheck={false}
+                  placeholder={
+                    i === patterns.length
+                      ? patterns.length === 0
+                        ? (draft.is_regex ? "regex source, e.g. \\bfish(es)?\\b" : "literal substring")
+                        : "add another…"
+                      : ""
+                  }
+                  className="flex-1 min-w-0 px-2 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded font-mono text-[11px] outline-none focus:border-emerald-500"
+                />
+                {i < patterns.length && (
+                  <button
+                    onClick={() => removePatternAt(i)}
+                    title="remove pattern"
+                    className="shrink-0 p-1 text-zinc-400 hover:text-rose-500"
+                  >
+                    <X size={11} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+        {patterns.length > 1 && (
+          <div className="text-[10px] text-zinc-500 mt-1">
+            {draft.combinator === "and"
+              ? "and — highlight only when every pattern appears in the text"
+              : "or — highlight any text matching a pattern"}
+          </div>
+        )}
       </Labeled>
 
       <div className="flex items-center gap-3 text-[10px]">
@@ -497,7 +572,7 @@ function RuleEditor(props: {
       <div className="flex gap-2 pt-1">
         <button
           onClick={onSave}
-          disabled={saving || !draft.name || !draft.pattern}
+          disabled={saving || !draft.name || !(draft.patterns ?? []).some((p) => p.trim() !== "")}
           className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded disabled:opacity-50 text-[11px]"
         >{saving ? "saving…" : "save"}</button>
         <button

@@ -9,6 +9,8 @@ const empty: ViewerState = {
   view_kind: null,
   row_count: 0,
   columns: [],
+  numeric_cols: [],
+  tabular: false,
   row_idx: 0,
   filter_regex: null,
   filter_column: null,

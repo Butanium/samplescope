@@ -44,9 +44,17 @@ export default function Collapsible({
 
   useLayoutEffect(() => {
     if (isString || !ref.current) return;
-    const t = ref.current.textContent ?? "";
-    const lineCount = t.split("\n").length;
-    setNodeOverflows(lineCount > lines || t.length > chars);
+    const el = ref.current;
+    // Detect overflow by ACTUAL rendered height against the same threshold we
+    // clip at (`maxHeight` below), not by character count. A long-but-narrow
+    // paragraph wraps to far fewer rows than its char count implies, so the
+    // old `t.length > chars` test fired the fade on content that fit entirely
+    // within the clamp — "shaded even when fully displayed". `scrollHeight` is
+    // the natural content height even while `overflow:hidden` is applied, so
+    // this stays stable once collapsed. `chars` still governs string children.
+    const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const maxPx = lines * 1.5 * rootPx;
+    setNodeOverflows(el.scrollHeight > maxPx + 2);
   }, [children, lines, chars, isString]);
 
   // Short content: render bare. No click target, no cursor change.

@@ -75,7 +75,12 @@ export type HighlightRule = {
   id: string;
   name: string;
   enabled: boolean;
-  pattern: string;
+  /** The patterns to match. Combined per `combinator`. */
+  patterns: string[];
+  /** Legacy single value (= patterns[0]); kept for back-compat. */
+  pattern?: string;
+  /** "or" paints any match; "and" paints all only when every pattern is present. */
+  combinator: "or" | "and";
   is_regex: boolean;
   case_sensitive: boolean;
   /** Hex color, e.g. "#fde047". The frontend appends an alpha for the mark bg. */
@@ -108,6 +113,8 @@ export type ViewerState = {
   view_kind: string | null;
   row_count: number;
   columns: string[];
+  numeric_cols: string[];
+  tabular: boolean;
   row_idx: number;
   filter_regex: string | null;
   filter_column: string | null;

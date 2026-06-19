@@ -3,7 +3,7 @@ import { api } from "../lib/api";
 import { useViewerState } from "../lib/state";
 import { useUrlSync } from "../lib/url";
 import { nextIdx, prevIdx } from "../lib/nav";
-import { cn } from "../lib/utils";
+import { cn, copyToClipboard } from "../lib/utils";
 import { Shuffle, ChevronLeft, ChevronRight, X, Filter, ArrowUp, ArrowDown } from "lucide-react";
 
 export default function DatasetHeader() {
@@ -12,6 +12,7 @@ export default function DatasetHeader() {
   const [textDraft, setTextDraft] = useState(url.filterText ?? "");
   const [columnDraft, setColumnDraft] = useState(url.filterColumn ?? "");
   const [isRegex, setIsRegex] = useState(url.filterIsRegex);
+  const [pathCopied, setPathCopied] = useState(false);
 
   useEffect(() => { setTextDraft(url.filterText ?? ""); }, [url.filterText]);
   useEffect(() => { setColumnDraft(url.filterColumn ?? ""); }, [url.filterColumn]);
@@ -35,8 +36,26 @@ export default function DatasetHeader() {
 
   return (
     <header className="h-12 shrink-0 border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-2 px-3 text-xs">
-      <div className="font-mono truncate flex-1 text-zinc-700 dark:text-zinc-300" title={v.dataset_path}>
-        {v.dataset_path}
+      <div className="font-mono truncate flex-1 min-w-0 text-zinc-700 dark:text-zinc-300">
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={async () => {
+            if (await copyToClipboard(v.dataset_path!)) {
+              setPathCopied(true);
+              setTimeout(() => setPathCopied(false), 1100);
+            }
+          }}
+          title={pathCopied ? "copied!" : "click to copy relative path"}
+          className={cn(
+            "cursor-pointer hover:underline decoration-dotted underline-offset-2",
+            pathCopied
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "hover:text-emerald-700 dark:hover:text-emerald-400",
+          )}
+        >
+          {v.dataset_path}
+        </span>
         <span className="ml-2 text-zinc-400 dark:text-zinc-600">· {v.view_kind} · {total} rows</span>
         {v.sql_mode === "selection" && v.sql_selection_count != null && (
           <span className="ml-2 text-emerald-700 dark:text-emerald-400">
@@ -47,6 +66,9 @@ export default function DatasetHeader() {
           <span className="ml-2 text-emerald-700 dark:text-emerald-400">· SQL view</span>
         )}
       </div>
+      {pathCopied && (
+        <span className="shrink-0 text-emerald-600 dark:text-emerald-400 font-mono">copied ✓</span>
+      )}
       <button
         onClick={() => {
           const t = prevIdx(idx);

@@ -3,11 +3,15 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useViewerState } from "../lib/state";
 import { usePref } from "../lib/prefs";
-import { fmtBytes, cn } from "../lib/utils";
+import { fmtBytes, cn, copyToClipboard, joinPath } from "../lib/utils";
 import type { DatasetEntry } from "../lib/types";
-import { ChevronRight, ChevronDown, FileText, FileBox, FileJson, FileCode, FileSpreadsheet, Image as ImageIcon, FileType } from "lucide-react";
+import { ChevronRight, ChevronDown, FileText, FileBox, FileJson, FileCode, FileSpreadsheet, Image as ImageIcon, FileType, Plus, X, EyeOff, RefreshCw } from "lucide-react";
 import { usePinHandler } from "../lib/pin";
 import { useUrlSync } from "../lib/url";
+import TabContextMenu from "./ui/TabContextMenu";
+
+type FileMenu = { x: number; y: number; entry: DatasetEntry };
+type FileContextHandler = (pos: { x: number; y: number }, entry: DatasetEntry) => void;
 
 type Node = { name: string; path: string; children: Map<string, Node>; files: DatasetEntry[] };
 
@@ -37,11 +41,49 @@ function buildTree(entries: DatasetEntry[]): Node {
 export default function DatasetTree() {
   const v = useViewerState();
   const [filter, setFilter] = useState("");
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, isFetching, refetch } = useQuery({
     queryKey: ["datasets"],
     queryFn: () => api.listDatasets(),
     staleTime: 30_000,
   });
+
+  // Ignore list: regex patterns matched against each file's path, with a master
+  // on/off toggle. Persisted like the rest of the tree state so it survives
+  // restarts and follows the user across browsers.
+  const [ignoreEnabled, setIgnoreEnabled] = usePref<boolean>("tree.ignoreEnabled", true);
+  const [ignorePatterns, setIgnorePatterns] = usePref<string[]>("tree.ignorePatterns", []);
+  const [ignoreOpen, setIgnoreOpen] = usePref<boolean>("tree.ignoreOpen", false);
+  const [draft, setDraft] = useState("");
+
+  // Compile each pattern once; an invalid regex is surfaced in the editor (red
+  // border + the engine's message) and skipped when filtering rather than
+  // breaking the whole tree.
+  const compiled = useMemo(
+    () =>
+      ignorePatterns.map((p) => {
+        try {
+          return { pattern: p, re: p ? new RegExp(p) : null, error: null as string | null };
+        } catch (e) {
+          return { pattern: p, re: null, error: e instanceof Error ? e.message : String(e) };
+        }
+      }),
+    [ignorePatterns],
+  );
+
+  const addPattern = useCallback(() => {
+    const t = draft.trim();
+    setDraft("");
+    if (!t || ignorePatterns.includes(t)) return;
+    setIgnorePatterns([...ignorePatterns, t]);
+  }, [draft, ignorePatterns, setIgnorePatterns]);
+  const editPattern = useCallback(
+    (i: number, val: string) => setIgnorePatterns(ignorePatterns.map((p, j) => (j === i ? val : p))),
+    [ignorePatterns, setIgnorePatterns],
+  );
+  const removePattern = useCallback(
+    (i: number) => setIgnorePatterns(ignorePatterns.filter((_, j) => j !== i)),
+    [ignorePatterns, setIgnorePatterns],
+  );
 
   // Persisted per-folder open/closed map. Absence means "use the depth-based
   // default" (depth<2 starts open) so first-time users see a sensible tree
@@ -63,19 +105,40 @@ export default function DatasetTree() {
     [openMap, setOpenMap],
   );
 
-  const filtered = useMemo(() => {
-    if (!data) return [];
-    if (!filter) return data;
+  const { filtered, ignoredCount } = useMemo(() => {
+    if (!data) return { filtered: [] as DatasetEntry[], ignoredCount: 0 };
     const f = filter.toLowerCase();
-    return data.filter((d) => d.path.toLowerCase().includes(f));
-  }, [data, filter]);
+    const textPass = f ? data.filter((d) => d.path.toLowerCase().includes(f)) : data;
+    const res = ignoreEnabled ? (compiled.map((c) => c.re).filter(Boolean) as RegExp[]) : [];
+    if (res.length === 0) return { filtered: textPass, ignoredCount: 0 };
+    const kept = textPass.filter((d) => !res.some((re) => re.test(d.path)));
+    return { filtered: kept, ignoredCount: textPass.length - kept.length };
+  }, [data, filter, ignoreEnabled, compiled]);
 
   const tree = useMemo(() => buildTree(filtered), [filtered]);
+
+  // Server root, for resolving absolute paths in the right-click menu.
+  const { data: health } = useQuery({ queryKey: ["health"], queryFn: api.health, staleTime: Infinity });
+  const [menu, setMenu] = useState<FileMenu | null>(null);
+  const onFileContext = useCallback<FileContextHandler>(
+    (pos, entry) => setMenu({ x: pos.x, y: pos.y, entry }),
+    [],
+  );
 
   return (
     <div className="h-full flex flex-col">
       <div className="px-3 py-2 border-b border-zinc-200 dark:border-zinc-800">
-        <div className="text-xs text-zinc-500 mb-1 uppercase tracking-wide">datasets</div>
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-xs text-zinc-500 uppercase tracking-wide">datasets</div>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            title="refresh file list"
+            className="p-0.5 rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60 disabled:opacity-60"
+          >
+            <RefreshCw size={12} className={cn(isFetching && "animate-spin")} />
+          </button>
+        </div>
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
@@ -85,6 +148,7 @@ export default function DatasetTree() {
         {data && (
           <div className="text-[11px] text-zinc-400 dark:text-zinc-600 mt-1">
             {filtered.length} / {data.length} files
+            {ignoreEnabled && ignoredCount > 0 && ` · ${ignoredCount} ignored`}
           </div>
         )}
       </div>
@@ -92,9 +156,102 @@ export default function DatasetTree() {
         {isLoading && <div className="text-zinc-500 text-xs px-2">loading…</div>}
         {error && <div className="text-red-400 text-xs px-2">{String(error)}</div>}
         {!isLoading && !error && (
-          <TreeNode node={tree} depth={0} activePath={v.dataset_path} isOpen={isOpen} toggle={toggle} />
+          <TreeNode node={tree} depth={0} activePath={v.dataset_path} isOpen={isOpen} toggle={toggle} onFileContext={onFileContext} />
         )}
       </div>
+      <div className="border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 text-xs">
+        <div className="flex items-center gap-2">
+          <label
+            className="flex items-center gap-1.5 cursor-pointer select-none shrink-0"
+            title={ignoreEnabled ? "ignore list is on — uncheck to show everything" : "ignore list is off"}
+          >
+            <input
+              type="checkbox"
+              checked={ignoreEnabled}
+              onChange={(e) => setIgnoreEnabled(e.target.checked)}
+              className="accent-emerald-600"
+            />
+            <EyeOff size={12} className="opacity-70" />
+          </label>
+          <button
+            onClick={() => setIgnoreOpen(!ignoreOpen)}
+            className="flex-1 flex items-center gap-1 text-left text-zinc-500 uppercase tracking-wide hover:text-zinc-700 dark:hover:text-zinc-300"
+          >
+            {ignoreOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <span>ignore</span>
+            <span className="ml-auto normal-case tracking-normal text-[11px] text-zinc-400 dark:text-zinc-600">
+              {ignorePatterns.length === 0
+                ? "no patterns"
+                : !ignoreEnabled
+                  ? `${ignorePatterns.length} off`
+                  : `${ignoredCount} hidden`}
+            </span>
+          </button>
+        </div>
+        {ignoreOpen && (
+          <div className="mt-2 space-y-1">
+            {compiled.map((c, i) => (
+              <div key={i} className="flex items-center gap-1">
+                <input
+                  value={c.pattern}
+                  onChange={(e) => editPattern(i, e.target.value)}
+                  spellCheck={false}
+                  title={c.error ?? "regex matched against the full file path"}
+                  className={cn(
+                    "flex-1 min-w-0 px-1.5 py-0.5 bg-white dark:bg-zinc-900 border rounded text-xs outline-none font-mono",
+                    c.error
+                      ? "border-red-500 text-red-500"
+                      : "border-zinc-200 dark:border-zinc-800 focus:border-emerald-600",
+                  )}
+                />
+                <button
+                  onClick={() => removePattern(i)}
+                  title="remove pattern"
+                  className="shrink-0 p-1 text-zinc-400 hover:text-red-500"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+            <div className="flex items-center gap-1">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") addPattern();
+                }}
+                placeholder="add regex pattern…"
+                spellCheck={false}
+                className="flex-1 min-w-0 px-1.5 py-0.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded text-xs outline-none focus:border-emerald-600 font-mono"
+              />
+              <button
+                onClick={addPattern}
+                title="add pattern"
+                className="shrink-0 p-1 text-zinc-400 hover:text-emerald-500"
+              >
+                <Plus size={12} />
+              </button>
+            </div>
+            <div className="text-[10px] text-zinc-400 dark:text-zinc-600">
+              regex matched against each file's path; matches are hidden from the tree
+            </div>
+          </div>
+        )}
+      </div>
+      {menu && (
+        <TabContextMenu
+          anchor={{ x: menu.x, y: menu.y }}
+          onClose={() => setMenu(null)}
+          items={[
+            { label: "copy relative path", run: () => copyToClipboard(menu.entry.path) },
+            {
+              label: "copy absolute path",
+              run: () => { if (health?.root) copyToClipboard(joinPath(health.root, menu.entry.path)); },
+              disabled: !health?.root,
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }
@@ -105,19 +262,20 @@ interface TreeNodeProps {
   activePath: string | null;
   isOpen: (path: string, depth: number) => boolean;
   toggle: (path: string, depth: number) => void;
+  onFileContext: FileContextHandler;
 }
 
-function TreeNode({ node, depth, activePath, isOpen, toggle }: TreeNodeProps) {
+function TreeNode({ node, depth, activePath, isOpen, toggle, onFileContext }: TreeNodeProps) {
   const hasContent = node.children.size > 0 || node.files.length > 0;
   if (!hasContent) return null;
   if (!node.name) {
     return (
       <div>
         {[...node.children.values()].map((c) => (
-          <TreeNode key={c.path} node={c} depth={depth} activePath={activePath} isOpen={isOpen} toggle={toggle} />
+          <TreeNode key={c.path} node={c} depth={depth} activePath={activePath} isOpen={isOpen} toggle={toggle} onFileContext={onFileContext} />
         ))}
         {node.files.map((f) => (
-          <FileRow key={f.path} entry={f} depth={depth} active={activePath === f.path} />
+          <FileRow key={f.path} entry={f} depth={depth} active={activePath === f.path} onContext={onFileContext} />
         ))}
       </div>
     );
@@ -136,10 +294,10 @@ function TreeNode({ node, depth, activePath, isOpen, toggle }: TreeNodeProps) {
       {open && (
         <>
           {[...node.children.values()].map((c) => (
-            <TreeNode key={c.path} node={c} depth={depth + 1} activePath={activePath} isOpen={isOpen} toggle={toggle} />
+            <TreeNode key={c.path} node={c} depth={depth + 1} activePath={activePath} isOpen={isOpen} toggle={toggle} onFileContext={onFileContext} />
           ))}
           {node.files.map((f) => (
-            <FileRow key={f.path} entry={f} depth={depth + 1} active={activePath === f.path} />
+            <FileRow key={f.path} entry={f} depth={depth + 1} active={activePath === f.path} onContext={onFileContext} />
           ))}
         </>
       )}
@@ -147,7 +305,7 @@ function TreeNode({ node, depth, activePath, isOpen, toggle }: TreeNodeProps) {
   );
 }
 
-function FileRow({ entry, depth, active }: { entry: DatasetEntry; depth: number; active: boolean }) {
+function FileRow({ entry, depth, active, onContext }: { entry: DatasetEntry; depth: number; active: boolean; onContext: FileContextHandler }) {
   const Icon =
     entry.kind === "eval" ? FileBox
     : entry.kind === "json" ? FileJson
@@ -175,7 +333,11 @@ function FileRow({ entry, depth, active }: { entry: DatasetEntry; depth: number;
         }
         api.openDataset(entry.path);
       }}
-      title={`${entry.path}${isPlot ? " — opens in plot panel" : " — shift+click to pin"}`}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onContext({ x: e.clientX, y: e.clientY }, entry);
+      }}
+      title={`${entry.path}${isPlot ? " — opens in plot panel" : " — shift+click to pin"} — right-click to copy path`}
       style={{ paddingLeft: depth * 10 + 18 }}
       className={cn(
         "flex items-center gap-2 px-1 py-0.5 hover:bg-white dark:bg-zinc-900 w-full text-left text-sm",

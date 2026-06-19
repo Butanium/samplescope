@@ -182,11 +182,34 @@ export function UrlSyncBridge() {
       setOrDel("sortdir", v.sort_column && v.sort_desc ? "desc" : null);
       setOrDel("sql", v.sql_mode !== "off" ? v.sql_query : null);
       setOrDel("sqlmode", v.sql_mode !== "off" ? v.sql_mode : null);
+
+      // Filter: state only carries the compiled `filter_regex`, while the URL
+      // keeps the user's original text + literal/regex mode. So only rewrite the
+      // filter params when the URL doesn't already compile to the active filter
+      // — that preserves a user-typed literal (which would otherwise leak its
+      // escaped form into `q` and flip `qmode` to regex), while still mirroring
+      // an agent-set filter (no prior `q`) as a regex.
+      const urlText = next.get("q");
+      const urlCol = next.get("qcol") || null;
+      const urlRegex = urlText ? (next.get("qmode") === "regex" ? urlText : escapeRegex(urlText)) : null;
+      const stateRegex = v.filter_regex || null;
+      const stateCol = v.filter_column || null;
+      if (urlRegex !== stateRegex || urlCol !== stateCol) {
+        if (stateRegex) {
+          next.set("q", stateRegex);
+          next.set("qmode", "regex");
+        } else {
+          next.delete("q");
+          next.delete("qmode");
+        }
+        setOrDel("qcol", stateCol);
+      }
+
       if (next.toString() !== prev.toString()) return next;
       return prev;
     }, { replace: true });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [v.dataset_path, v.row_idx, v.shuffle_seed, v.sort_column, v.sort_desc, v.sql_query, v.sql_mode]);
+  }, [v.dataset_path, v.row_idx, v.shuffle_seed, v.sort_column, v.sort_desc, v.sql_query, v.sql_mode, v.filter_regex, v.filter_column]);
 
   return null;
 }

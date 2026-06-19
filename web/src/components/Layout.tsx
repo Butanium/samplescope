@@ -20,7 +20,8 @@ import { useViewerState } from "../lib/state";
 import { useUrlSync } from "../lib/url";
 import { api } from "../lib/api";
 import { nextIdx, prevIdx } from "../lib/nav";
-import { MessageSquare, Database, Star, Scale, Terminal, HelpCircle, Highlighter, Image as ImageIcon, ChevronDown, ChevronUp } from "lucide-react";
+import { MessageSquare, Database, Star, Scale, Terminal, HelpCircle, Highlighter, Image as ImageIcon, ChevronDown, ChevronUp, LineChart as LineChartIcon, Table as TableIcon } from "lucide-react";
+import { cn } from "../lib/utils";
 
 export default function Layout() {
   const v = useViewerState();
@@ -187,8 +188,15 @@ function DrawerToggle({ icon, active, title, onClick }: {
   );
 }
 
+type ViewMode = "samples" | "table" | "plot";
+
 function ViewSwitch() {
   const v = useViewerState();
+  // Client-side render-mode override. `null` = follow the detected default.
+  // Reset whenever the open dataset changes (available modes differ).
+  const [mode, setMode] = useState<ViewMode | null>(null);
+  useEffect(() => setMode(null), [v.dataset_path]);
+
   if (!v.dataset_path) {
     return (
       <div className="h-full w-full flex items-center justify-center text-zinc-500 text-sm">
@@ -204,11 +212,65 @@ function ViewSwitch() {
   }
   // SQL view mode (C) overrides the dataset's native view kind.
   if (v.sql_mode === "view") return <SqlView />;
-  switch (v.view_kind) {
-    case "chat": return <ChatRowView />;
-    case "table": return <TableRowView />;
-    case "metrics": return <MetricsView />;
-    case "eval_log": return <EvalLogView />;
-    default: return <JsonTreeView />;
-  }
+
+  // The same multi-sample dataset can be rendered three ways. Which are offered
+  // depends on shape: a per-sample view always; a table when rows are flat; a
+  // plot when there's a numeric `step` axis plus another numeric series.
+  const canTable = v.tabular;
+  const canPlot = v.numeric_cols.includes("step") && v.numeric_cols.length >= 2;
+  const defaultMode: ViewMode =
+    v.view_kind === "metrics" ? "plot" : v.view_kind === "table" ? "table" : "samples";
+  const active: ViewMode = mode ?? defaultMode;
+
+  const samples = () => {
+    switch (v.view_kind) {
+      case "chat": return <ChatRowView />;
+      case "eval_log": return <EvalLogView />;
+      // "table"/"metrics" kinds, viewed as samples, render per-record cards.
+      default: return <JsonTreeView />;
+    }
+  };
+
+  const render = () =>
+    active === "plot" ? <MetricsView /> : active === "table" ? <TableRowView /> : samples();
+
+  // Only one applicable mode → no toggle, just render it.
+  const modes = (["samples", "table", "plot"] as ViewMode[]).filter(
+    (m) => m === "samples" || (m === "table" && canTable) || (m === "plot" && canPlot),
+  );
+  if (modes.length <= 1) return render();
+
+  return (
+    <div className="h-full flex flex-col min-h-0">
+      <div className="shrink-0 flex items-center gap-1 px-3 py-1 border-b border-zinc-200 dark:border-zinc-800">
+        {modes.includes("samples") && (
+          <ViewToggleButton active={active === "samples"} onClick={() => setMode("samples")} icon={<Database size={12} />} label="samples" />
+        )}
+        {modes.includes("table") && (
+          <ViewToggleButton active={active === "table"} onClick={() => setMode("table")} icon={<TableIcon size={12} />} label="table" />
+        )}
+        {modes.includes("plot") && (
+          <ViewToggleButton active={active === "plot"} onClick={() => setMode("plot")} icon={<LineChartIcon size={12} />} label="plot" />
+        )}
+      </div>
+      <div className="flex-1 min-h-0">{render()}</div>
+    </div>
+  );
+}
+
+function ViewToggleButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-1 px-2 py-0.5 rounded text-[11px] uppercase tracking-wide transition-colors",
+        active
+          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+          : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60",
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  );
 }

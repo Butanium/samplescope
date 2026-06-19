@@ -10,7 +10,7 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => j<{ ok: boolean; chat_available?: boolean }>("/api/health"),
+  health: () => j<{ ok: boolean; chat_available?: boolean; root?: string }>("/api/health"),
   // datasets
   listDatasets: () => j<DatasetEntry[]>("/api/datasets"),
   datasetInfo: (path: string) =>

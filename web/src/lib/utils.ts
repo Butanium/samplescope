@@ -16,3 +16,18 @@ export function truncate(s: string, max = 240): string {
   if (s.length <= max) return s;
   return s.slice(0, max - 1) + "…";
 }
+
+/** Copy text to the clipboard; resolves false if the API is blocked. */
+export async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Join a server root and a repo-relative path into an absolute path. */
+export function joinPath(root: string, rel: string): string {
+  return root.replace(/\/+$/, "") + "/" + rel.replace(/^\/+/, "");
+}

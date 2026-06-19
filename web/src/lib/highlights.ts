@@ -59,19 +59,43 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function ruleRegex(rule: HighlightRule): RegExp | null {
-  const key = `${rule.is_regex ? "r" : "l"}|${rule.case_sensitive ? "c" : "i"}|${rule.pattern}`;
+/** The rule's pattern list, tolerating the legacy single-`pattern` shape. */
+function rulePatterns(rule: HighlightRule): string[] {
+  const ps = (rule.patterns ?? []).filter((p) => p.length > 0);
+  if (ps.length) return ps;
+  return rule.pattern ? [rule.pattern] : [];
+}
+
+function compileOne(src: string, isRegex: boolean, caseSensitive: boolean): RegExp | null {
+  const key = `${isRegex ? "r" : "l"}|${caseSensitive ? "c" : "i"}|${src}`;
   if (REGEX_CACHE.has(key)) return REGEX_CACHE.get(key) ?? null;
   let re: RegExp | null = null;
   try {
-    const flags = rule.case_sensitive ? "g" : "gi";
-    const src = rule.is_regex ? rule.pattern : escapeRegex(rule.pattern);
-    re = new RegExp(src, flags);
+    const flags = caseSensitive ? "g" : "gi";
+    re = new RegExp(isRegex ? src : escapeRegex(src), flags);
   } catch {
     re = null;
   }
   REGEX_CACHE.set(key, re);
   return re;
+}
+
+/** Every compilable pattern of a rule as a fresh-lastIndex regex. */
+function ruleRegexes(rule: HighlightRule): RegExp[] {
+  const out: RegExp[] = [];
+  for (const p of rulePatterns(rule)) {
+    const re = compileOne(p, rule.is_regex, rule.case_sensitive);
+    if (re) out.push(re);
+  }
+  return out;
+}
+
+/** AND gate: with combinator "and", paint only if EVERY pattern is present in
+ *  the (full, scope-level) text. "or" always passes. */
+function combinatorSatisfied(rule: HighlightRule, fullText: string): boolean {
+  if ((rule.combinator ?? "or") !== "and") return true;
+  const res = ruleRegexes(rule);
+  return res.length > 0 && res.every((re) => { re.lastIndex = 0; return re.test(fullText); });
 }
 
 function ruleApplies(rule: HighlightRule, ctx: HighlightContext): boolean {
@@ -92,25 +116,21 @@ function ruleApplies(rule: HighlightRule, ctx: HighlightContext): boolean {
 
 type Range = { start: number; end: number; color: string };
 
-/** Compute non-overlapping match ranges over `text` for the surviving rules. */
-function computeRanges(
-  text: string,
-  rules: HighlightRule[],
-  ctx: HighlightContext,
-): Range[] {
+/** Non-overlapping match ranges over `text` for already-filtered rules (scope
+ *  + combinator gating done by the caller). Paints every pattern of each rule. */
+function paintRanges(text: string, rules: HighlightRule[]): Range[] {
   const ranges: Range[] = [];
   for (const rule of rules) {
-    if (!ruleApplies(rule, ctx)) continue;
-    const re = ruleRegex(rule);
-    if (!re) continue;
-    re.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(text)) !== null) {
-      if (m[0].length === 0) {
-        re.lastIndex++;
-        continue;
+    for (const re of ruleRegexes(rule)) {
+      re.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text)) !== null) {
+        if (m[0].length === 0) {
+          re.lastIndex++;
+          continue;
+        }
+        ranges.push({ start: m.index, end: m.index + m[0].length, color: rule.color });
       }
-      ranges.push({ start: m.index, end: m.index + m[0].length, color: rule.color });
     }
   }
   if (ranges.length === 0) return ranges;
@@ -151,7 +171,9 @@ export function applyHighlights(
   ctx: HighlightContext,
   rules: HighlightRule[],
 ): React.ReactNode {
-  const ranges = computeRanges(text, rules, ctx);
+  // `pre` mode: the whole string is the scope, so AND can gate on `text`.
+  const painting = rules.filter((r) => ruleApplies(r, ctx) && combinatorSatisfied(r, text));
+  const ranges = paintRanges(text, painting);
   if (ranges.length === 0) return text;
   const out: React.ReactNode[] = [];
   let cursor = 0;
@@ -213,16 +235,30 @@ export function rehypeHighlights(
   const active = rules.filter((r) => ruleApplies(r, ctx));
   return () => (tree: HastRoot) => {
     if (active.length === 0) return;
-    walk(tree as unknown as HastElement);
+    // AND rules gate on the WHOLE rendered text (markdown splits a message into
+    // many text nodes, so a per-node check would miss cross-paragraph matches).
+    const fullText = collectText(tree as unknown as HastElement);
+    const painting = active.filter((r) => combinatorSatisfied(r, fullText));
+    if (painting.length === 0) return;
+    walk(tree as unknown as HastElement, painting);
   };
 
-  function walk(node: HastElement | HastRoot): void {
+  function collectText(node: HastElement | HastRoot, acc: string[] = []): string {
+    if (!("children" in node) || !Array.isArray(node.children)) return acc.join("");
+    for (const child of node.children) {
+      if ((child as HastText).type === "text") acc.push((child as HastText).value);
+      else if ((child as HastElement).children) collectText(child as HastElement, acc);
+    }
+    return acc.join("");
+  }
+
+  function walk(node: HastElement | HastRoot, painting: HighlightRule[]): void {
     if (!("children" in node) || !Array.isArray(node.children)) return;
     const out: HastChild[] = [];
     for (const child of node.children) {
       if ((child as HastText).type === "text") {
         const text = (child as HastText).value;
-        const ranges = computeRanges(text, active, ctx);
+        const ranges = paintRanges(text, painting);
         if (ranges.length === 0) {
           out.push(child);
           continue;
@@ -240,7 +276,7 @@ export function rehypeHighlights(
         }
       } else {
         if ((child as HastElement).children) {
-          walk(child as HastElement);
+          walk(child as HastElement, painting);
         }
         out.push(child);
       }
