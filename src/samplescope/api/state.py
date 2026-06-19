@@ -20,6 +20,12 @@ class ViewerState:
     view_kind: str | None = None
     row_count: int = 0
     columns: list[str] = field(default_factory=list)
+    # Numeric columns detected in the dataset; lets the UI offer a plot toggle
+    # even when the default view is samples (table/chat/json).
+    numeric_cols: list[str] = field(default_factory=list)
+    # Whether rows are flat (a spreadsheet rendering is meaningful) — drives the
+    # "table" option in the view toggle.
+    tabular: bool = False
     row_idx: int = 0
     filter_regex: str | None = None
     filter_column: str | None = None

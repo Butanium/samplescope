@@ -42,6 +42,13 @@ def _read_source(p: Path, param: str = "?") -> str:
         return f"read_csv_auto({param}, header=true, delim='\\t')"
     if ext == ".csv":
         return f"read_csv_auto({param}, header=true)"
+    if ext == ".json":
+        # A plain `.json` file is a single JSON value — a pretty-printed object
+        # or an array of records — not newline-delimited. `format='auto'` lets
+        # DuckDB detect the shape: an array becomes one row per element, a lone
+        # object becomes a single row. Forcing 'newline_delimited' here 500s on
+        # any multi-line JSON.
+        return f"read_json_auto({param}, format='auto', union_by_name=true)"
     return f"read_json_auto({param}, format='newline_delimited', union_by_name=true)"
 
 # Eval logs are materialized to one-line-per-sample JSONL under .cache/ on first
@@ -176,7 +183,7 @@ def dataset_info(path: str) -> DatasetInfo:
     if (
         p.suffix.lower() in JSONL_SUFFIXES
         or p.suffix.lower() in CSV_SUFFIXES
-        or p.suffix.lower() == ".eval"
+        or p.suffix.lower() in {".eval", ".json"}
     ):
         qp = query_path(p)
         src = _read_source(qp)
@@ -393,6 +400,8 @@ async def open_dataset(payload: dict) -> dict:
         view_kind=info.view_kind,
         row_count=info.row_count,
         columns=info.columns,
+        numeric_cols=info.detect_meta.get("numeric_cols", []),
+        tabular=info.detect_meta.get("tabular", False),
         row_idx=0,
         filter_regex=None,
         filter_column=None,
