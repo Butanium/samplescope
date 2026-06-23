@@ -1,58 +1,51 @@
-// Mirrors apps/samplescope/api/models.py.
+// Backend-derived types are GENERATED from the FastAPI OpenAPI schema into
+// ./api-types.gen.ts. Regenerate with `npm run gen:types` after changing any
+// Pydantic model in src/samplescope/api/. Aliasing them here keeps the import
+// surface stable (`import type { DatasetEntry } from "../lib/types"`) while
+// making the wire shapes — and especially the `kind` / `view_kind` enums —
+// impossible to drift from the Python source. tests/test_codegen.py fails if
+// the committed api-types.gen.ts is stale.
+//
+// The hand-written block below the divider is intentional: either the client
+// deliberately refines the wire shape (RowPage rows kept as `any` so views can
+// index freely; HighlightRule.combinator narrowed to a union the backend types
+// as a bare str) or there is no backend model at all (ViewerState is an SSE
+// dataclass; JudgeResult / PlotTab / ChatBlock are not response models).
 
-export type DatasetEntry = {
-  path: string;
-  name: string;
-  size_bytes: number;
-  kind: "jsonl" | "csv" | "eval" | "json" | "pdf" | "image" | "markdown" | "other";
-  parent: string;
-};
+import type { components } from "./api-types.gen";
 
-export type DatasetInfo = {
-  path: string;
-  view_kind: "chat" | "table" | "metrics" | "eval_log" | "json" | "markdown";
-  row_count: number;
-  columns: string[];
-  detect_meta: Record<string, unknown>;
-};
+type Schemas = components["schemas"];
+
+// ── Generated from backend Pydantic models ──────────────────────────────────
+
+export type DatasetEntry = Schemas["DatasetEntry"];
+export type DatasetInfo = Schemas["DatasetInfo"];
+export type MarkRecord = Schemas["MarkRecord"];
+export type JudgePreset = Schemas["JudgePreset"];
+export type JudgeSettings = Schemas["JudgeSettings"];
+
+/** File-tree classification, derived from a file's extension. */
+export type FileKind = DatasetEntry["kind"];
+/** The detected renderer for an opened dataset. */
+export type ViewKind = DatasetInfo["view_kind"];
+/**
+ * Judge backend discriminator:
+ * - "prompt": uses ``system_prompt`` + optional ``response_schema``.
+ * - "scorer": uses ``scorer_import_path`` ("module.path:attr") to point at an
+ *   inspect ``@scorer``-decorated factory, resolved server-side.
+ */
+export type JudgeKind = JudgePreset["kind"];
+
+// ── Hand-written (deliberate client refinements / no backend model) ──────────
 
 export type RowPage = {
+  // Kept as `any` (not the generated `unknown`) so views can index/plot rows
+  // freely. The backend shape is `dict[str, Any]` either way.
   rows: Record<string, any>[];
   indices: number[];
   offset: number;
   limit: number;
   total_filtered: number;
-};
-
-export type MarkRecord = {
-  dataset_path: string;
-  row_idx: number;
-  row_hash: string;
-  tags: string[];
-  note: string;
-};
-
-export type JudgeKind = "prompt" | "scorer";
-
-export type JudgePreset = {
-  name: string;
-  description?: string | null;
-  /**
-   * Backend discriminator:
-   * - "prompt": uses ``system_prompt`` + optional ``response_schema``.
-   * - "scorer": uses ``scorer_import_path`` ("module.path:attr") to point at
-   *   an inspect ``@scorer``-decorated factory, resolved server-side.
-   */
-  kind: JudgeKind;
-  /** Scorer kind only. */
-  scorer_import_path?: string | null;
-  /** Prompt kind: template with {question}/{answer} slots. */
-  system_prompt: string;
-  score_field: string;
-  /** Prompt kind only; JSON-schema string. null/undefined ⇒ free-form numeric parse. */
-  response_schema?: string | null;
-  /** Inspect provider/model id, e.g. "openai/gpt-4.1-2025-04-14". */
-  model?: string | null;
 };
 
 export type JudgeResult = {
@@ -67,10 +60,6 @@ export type JudgeResult = {
   created_at: string;
 };
 
-export type JudgeSettings = {
-  default_judge_model: string;
-};
-
 export type HighlightRule = {
   id: string;
   name: string;
@@ -79,7 +68,10 @@ export type HighlightRule = {
   patterns: string[];
   /** Legacy single value (= patterns[0]); kept for back-compat. */
   pattern?: string;
-  /** "or" paints any match; "and" paints all only when every pattern is present. */
+  /**
+   * "or" paints any match; "and" paints all only when every pattern is present.
+   * Narrower than the backend (which types this as a bare str).
+   */
   combinator: "or" | "and";
   is_regex: boolean;
   case_sensitive: boolean;
@@ -110,7 +102,7 @@ export type PlotTab = {
 
 export type ViewerState = {
   dataset_path: string | null;
-  view_kind: string | null;
+  view_kind: ViewKind | null;
   row_count: number;
   columns: string[];
   numeric_cols: string[];

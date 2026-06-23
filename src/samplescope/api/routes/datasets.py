@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from ..duck import cursor, safe_path
 from ..models import DatasetEntry, DatasetInfo, RowPage
-from ..schema_detect import MARKDOWN_SUFFIXES, detect_view
+from ..schema_detect import MARKDOWN_SUFFIXES, FileKind, detect_view
 from ..settings import SETTINGS
 from ..state import BUS
 
@@ -155,7 +155,7 @@ def list_datasets() -> list[DatasetEntry]:
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp"}
 
 
-def _classify(p: Path) -> str:
+def _classify(p: Path) -> FileKind:
     """Map an extension to a viewer kind, or 'other' to filter out."""
     s = p.suffix.lower()
     if s in JSONL_SUFFIXES:

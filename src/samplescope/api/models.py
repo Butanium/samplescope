@@ -5,20 +5,22 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel
 
+from .schema_detect import FileKind, ViewKind
+
 
 class DatasetEntry(BaseModel):
     """One discoverable file in the scan roots."""
     path: str
     name: str
     size_bytes: int
-    kind: Literal["jsonl", "csv", "eval", "json", "pdf", "image", "markdown", "other"]
+    kind: FileKind
     parent: str
 
 
 class DatasetInfo(BaseModel):
     """Resolved metadata after opening a file."""
     path: str
-    view_kind: str
+    view_kind: ViewKind
     row_count: int
     columns: list[str]
     detect_meta: dict[str, Any] = {}

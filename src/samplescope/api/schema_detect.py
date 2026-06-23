@@ -5,6 +5,12 @@ import json
 from pathlib import Path
 from typing import Literal
 
+# The two kind taxonomies are declared here as the single source of truth and
+# imported wherever the backend needs them (models, datasets._classify). The
+# TS side is *generated* from the OpenAPI schema these feed (see
+# `samplescope._openapi` + `web` `npm run gen:types`), so the unions can't drift
+# across the language boundary — adding a kind here flows to the frontend.
+FileKind = Literal["jsonl", "csv", "eval", "json", "pdf", "image", "markdown", "other"]
 ViewKind = Literal["chat", "table", "metrics", "eval_log", "json", "markdown"]
 
 MARKDOWN_SUFFIXES = {".md", ".markdown"}

@@ -115,7 +115,19 @@ aren't self-evident from the code.
   production-like static serving + the instance registry. Add a regression test
   here for new behavior. `test_web.py` skips cleanly when `web/dist` isn't built;
   Playwright is a declared dep (`pyproject.toml`) — `playwright install chromium`
-  once if the browser is missing.
+  once if the browser is missing. Run the suite with `uv run python -m pytest`
+  (`uv run pytest` fails — pytest isn't exposed as a script).
+- **Backend models → TS types are generated, not hand-mirrored.** The Pydantic
+  models in `api/models.py` (and the `FileKind`/`ViewKind` literals in
+  `api/schema_detect.py`) are the single source of truth; `web/src/lib/
+  api-types.gen.ts` is generated from the FastAPI OpenAPI schema via `cd web &&
+  npm run gen:types` (= `python -m samplescope._openapi | openapi-typescript`).
+  `types.ts` aliases the backend-owned types to the generated ones and
+  hand-writes only the deliberate client refinements (`RowPage` rows as `any`,
+  `HighlightRule.combinator` union) plus the non-model types (`ViewerState`,
+  `PlotTab`, `ChatBlock`). So: changed a model? rerun `gen:types` and commit the
+  `.gen.ts` — `tests/test_codegen.py` fails if you forget. This closes the
+  cross-language drift that let a missing `kind` literal 500 at runtime.
 - **To eyeball a rendering interactively** (vs assert), spin up a throwaway
   instance and screenshot it — same isolation reason as the fixture:
   `state.duckdb` is **single-writer locked**, so you can't open a second
@@ -124,6 +136,12 @@ aren't self-evident from the code.
   isn't on — check `ss -ltn`; never disturb their instances), then a small
   `sync_playwright()` script. The URL is the full view state (`url.ts`), so you
   can deep-link any view: `?path=<urlenc-rel>&drawer=highlights&mode=single`.
+  Launch that server as a process your harness tracks/backgrounds for you — a
+  bare `&` / `setsid` / `nohup` gets SIGTERM'd by tool-call cleanup (exit 144,
+  server dies mid-test). UI smokes also **leak prefs across runs**:
+  `hydrateFromServer()` reloads prefs from the backend state dir even with fresh
+  browser localStorage, so a toggle a prior run flipped bleeds into the next —
+  use a fresh `XDG_STATE_HOME` per run, or reset the pref via `PUT /api/prefs`.
 - **Gotchas.** Build from `web/` (`cd web && npm run build`); at the repo root it
   errors on a missing `package.json`, and a `$?` check on the *wrapping* shell
   reads as a false pass. `get_by_role("button", name=…)` is substring-matched, so
