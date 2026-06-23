@@ -18,14 +18,26 @@ import sys
 import tempfile
 
 
-def main() -> None:
-    os.environ.setdefault("XDG_STATE_HOME", tempfile.mkdtemp(prefix="sscope-openapi-"))
+def _dump() -> None:
     from .api.main import app
 
     # sort_keys for byte-stable output, so regeneration is deterministic and the
     # staleness test (tests/test_codegen.py) compares cleanly.
     json.dump(app.openapi(), sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
+
+
+def main() -> None:
+    # If the caller already isolated XDG_STATE_HOME (tests, CI), respect it.
+    # Otherwise resolve SETTINGS (at import) against a throwaway dir that's
+    # cleaned up on exit — don't create (or leak) a cache dir under the user's
+    # real ~/.local/state just to read the schema.
+    if os.environ.get("XDG_STATE_HOME"):
+        _dump()
+        return
+    with tempfile.TemporaryDirectory(prefix="sscope-openapi-") as td:
+        os.environ["XDG_STATE_HOME"] = td
+        _dump()
 
 
 if __name__ == "__main__":
