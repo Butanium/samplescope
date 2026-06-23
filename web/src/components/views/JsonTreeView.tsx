@@ -6,7 +6,7 @@ import { api } from "../../lib/api";
 import { useViewerState } from "../../lib/state";
 import { useUrlSync } from "../../lib/url";
 import { usePref } from "../../lib/prefs";
-import { setNavIndices } from "../../lib/nav";
+import { useRowPage, usePublishNav } from "../../lib/rowPage";
 import { cn } from "../../lib/utils";
 import PreOrMarkdown from "../PreOrMarkdown";
 import Collapsible from "../Collapsible";
@@ -301,24 +301,8 @@ function SingleMode() {
   // idx±1 fallback. Only publish a visible-order list when filter/shuffle/sort
   // reorders the dataset — and only then pay for the page fetch.
   const navActive = v.filter_regex != null || v.shuffle_seed != null || v.sort_column != null;
-  const { data: navPage } = useQuery({
-    queryKey: ["json-nav", v.dataset_path, v.shuffle_seed, v.filter_regex, v.filter_column, v.sort_column, v.sort_desc],
-    queryFn: () => api.rows({
-      path: v.dataset_path!,
-      offset: 0,
-      limit: 2000,
-      filter_regex: v.filter_regex,
-      filter_column: v.filter_column,
-      shuffle_seed: v.shuffle_seed ?? null,
-      sort_column: v.sort_column,
-      sort_desc: v.sort_desc,
-    }),
-    enabled: !!v.dataset_path && navActive,
-  });
-  useEffect(() => {
-    setNavIndices(navActive ? (navPage?.indices ?? []) : []);
-    return () => setNavIndices([]);
-  }, [navActive, navPage?.indices?.join(",")]);
+  const { data: navPage } = useRowPage("json-nav", { limit: 2000, enabled: navActive });
+  usePublishNav(navPage?.indices, navActive);
 
   const setAll = (openAll: boolean) => { setDefaultOpen(openAll); setGen((g) => g + 1); };
 
@@ -355,27 +339,11 @@ function ListMode() {
   const [gen, setGen] = useState(0);
   const parentRef = useRef<HTMLDivElement>(null);
 
-  const { data: page } = useQuery({
-    queryKey: ["json-list", v.dataset_path, v.shuffle_seed, v.filter_regex, v.filter_column, v.sort_column, v.sort_desc],
-    queryFn: () => api.rows({
-      path: v.dataset_path!,
-      offset: 0,
-      limit: LIST_PAGE,
-      filter_regex: v.filter_regex,
-      filter_column: v.filter_column,
-      shuffle_seed: v.shuffle_seed ?? null,
-      sort_column: v.sort_column,
-      sort_desc: v.sort_desc,
-    }),
-    enabled: !!v.dataset_path,
-  });
+  const { data: page } = useRowPage("json-list", { limit: LIST_PAGE });
   const rows = page?.rows ?? [];
   const indices = page?.indices ?? [];
 
-  useEffect(() => {
-    setNavIndices(indices);
-    return () => setNavIndices([]);
-  }, [indices.join(",")]);
+  usePublishNav(indices);
 
   const virtualizer = useVirtualizer({
     count: rows.length,

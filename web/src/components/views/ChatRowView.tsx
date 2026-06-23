@@ -1,8 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
 import { useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { api } from "../../lib/api";
 import { useViewerState } from "../../lib/state";
+import { useRowPage } from "../../lib/rowPage";
 import { useUrlSync } from "../../lib/url";
 import { usePref } from "../../lib/prefs";
 import { cn } from "../../lib/utils";
@@ -276,29 +276,7 @@ function ListMode({ datasetPath, defaultRaw, pinnedFields }: {
   const v = useViewerState();
   const parentRef = useRef<HTMLDivElement>(null);
 
-  const { data: page } = useQuery({
-    queryKey: [
-      "chat-list",
-      datasetPath,
-      v.shuffle_seed,
-      v.filter_regex,
-      v.filter_column,
-      v.sort_column,
-      v.sort_desc,
-    ],
-    queryFn: () =>
-      api.rows({
-        path: datasetPath,
-        offset: 0,
-        limit: PAGE,
-        filter_regex: v.filter_regex,
-        filter_column: v.filter_column,
-        shuffle_seed: v.shuffle_seed ?? null,
-        sort_column: v.sort_column,
-        sort_desc: v.sort_desc,
-      }),
-    enabled: !!datasetPath,
-  });
+  const { data: page } = useRowPage("chat-list", { limit: PAGE });
 
   const rows = page?.rows ?? [];
   const indices = page?.indices ?? [];
@@ -355,30 +333,7 @@ function SingleMode({ datasetPath, defaultRaw, pinnedFields }: {
   const v = useViewerState();
   const [raw, toggleRaw] = useRawOverride(`row::${datasetPath}::${v.row_idx}`, defaultRaw);
 
-  const { data: page } = useQuery({
-    queryKey: [
-      "chat-single",
-      datasetPath,
-      v.shuffle_seed,
-      v.filter_regex,
-      v.filter_column,
-      v.sort_column,
-      v.sort_desc,
-      v.row_idx,
-    ],
-    queryFn: () =>
-      api.rows({
-        path: datasetPath,
-        offset: v.row_idx,
-        limit: 1,
-        filter_regex: v.filter_regex,
-        filter_column: v.filter_column,
-        shuffle_seed: v.shuffle_seed ?? null,
-        sort_column: v.sort_column,
-        sort_desc: v.sort_desc,
-      }),
-    enabled: !!datasetPath,
-  });
+  const { data: page } = useRowPage("chat-single", { offset: v.row_idx, limit: 1 });
 
   const row = page?.rows[0];
   const realIdx = page?.indices[0];
@@ -489,7 +444,7 @@ export default function ChatRowView() {
   return (
     <div className="h-full flex flex-col bg-zinc-50 dark:bg-zinc-950">
       <div className="flex items-center gap-3 px-4 py-1.5 border-b border-zinc-200/60 dark:border-zinc-800/70 text-[11px] font-mono text-zinc-500">
-        {mode === "list" && <ListCount path={v.dataset_path} />}
+        {mode === "list" && <ListCount />}
         <button
           onClick={() => setPinPickerOpen((o) => !o)}
           title="pin metadata fields to show above each row"
@@ -549,29 +504,10 @@ export default function ChatRowView() {
   );
 }
 
-/** Inline counter for the toolbar — shares the page query's cache via an
- *  identical queryKey. TanStack dedupes so only one fetch happens; we
- *  duplicate the queryFn so this hook isn't a queryFn-less subscriber
- *  (TanStack warns and refuses to render in that state). */
-function ListCount({ path }: { path: string }) {
-  const v = useViewerState();
-  const { data } = useQuery({
-    queryKey: [
-      "chat-list", path,
-      v.shuffle_seed, v.filter_regex, v.filter_column, v.sort_column, v.sort_desc,
-    ],
-    queryFn: () => api.rows({
-      path,
-      offset: 0,
-      limit: PAGE,
-      filter_regex: v.filter_regex,
-      filter_column: v.filter_column,
-      shuffle_seed: v.shuffle_seed ?? null,
-      sort_column: v.sort_column,
-      sort_desc: v.sort_desc,
-    }),
-    enabled: !!path,
-  });
+/** Inline counter for the toolbar — shares the list page query's cache via the
+ *  identical `useRowPage("chat-list", …)` key, so TanStack dedupes to one fetch. */
+function ListCount() {
+  const { data } = useRowPage("chat-list", { limit: PAGE });
   const page = data as { rows: any[]; total_filtered: number } | undefined;
   return (
     <span className="ml-auto tabular-nums">

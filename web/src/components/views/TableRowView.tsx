@@ -1,9 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useMemo } from "react";
+import { useRef, useMemo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { api } from "../../lib/api";
 import { useViewerState } from "../../lib/state";
-import { setNavIndices } from "../../lib/nav";
+import { useRowPage, usePublishNav } from "../../lib/rowPage";
 import { truncate, cn } from "../../lib/utils";
 
 const PAGE = 200;
@@ -12,30 +11,13 @@ export default function TableRowView() {
   const v = useViewerState();
   const parentRef = useRef<HTMLDivElement>(null);
 
-  const { data: page } = useQuery({
-    queryKey: ["table", v.dataset_path, v.shuffle_seed, v.filter_regex, v.filter_column, v.sort_column, v.sort_desc],
-    queryFn: () => api.rows({
-      path: v.dataset_path!,
-      offset: 0,
-      limit: PAGE,
-      filter_regex: v.filter_regex,
-      filter_column: v.filter_column,
-      shuffle_seed: v.shuffle_seed ?? null,
-      sort_column: v.sort_column,
-      sort_desc: v.sort_desc,
-    }),
-    enabled: !!v.dataset_path,
-  });
+  const { data: page } = useRowPage("table", { limit: PAGE });
 
   const rows = page?.rows ?? [];
   const indices = page?.indices ?? [];
 
-  // Publish the visible index order for arrow-key navigation in Layout —
-  // matters when shuffled or filtered so j/k step through what's on screen.
-  useEffect(() => {
-    setNavIndices(indices);
-    return () => setNavIndices([]);
-  }, [indices.join(",")]);
+  // Step arrow / j / k through the visible order (matters under filter/shuffle).
+  usePublishNav(indices);
   const cols = useMemo(() => {
     if (!rows[0]) return v.columns.filter((c) => c !== "__idx");
     return Object.keys(rows[0]);

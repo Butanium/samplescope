@@ -4,7 +4,7 @@ import { api } from "../../lib/api";
 import { useViewerState } from "../../lib/state";
 import { truncate, cn } from "../../lib/utils";
 import { usePinHandler } from "../../lib/pin";
-import { setNavIndices } from "../../lib/nav";
+import { useRowPage, usePublishNav } from "../../lib/rowPage";
 import RawJsonToggle from "../RawJsonToggle";
 
 // Eval logs are small enough in this codebase that a single fetch covers the
@@ -24,26 +24,13 @@ export default function EvalLogView() {
   // means arrow-key navigation updates the right pane instantly with no second
   // round-trip. Filter/shuffle/goto all flow through DuckDB the same way they
   // do for regular JSONL datasets.
-  const { data: indexPage } = useQuery({
-    queryKey: ["eval-index", v.dataset_path, v.filter_regex, v.filter_column, v.shuffle_seed, v.sort_column, v.sort_desc],
-    queryFn: () => api.rows({
-      path: v.dataset_path!, offset: 0, limit: EVAL_LIST_LIMIT,
-      filter_regex: v.filter_regex, filter_column: v.filter_column,
-      shuffle_seed: v.shuffle_seed,
-      sort_column: v.sort_column, sort_desc: v.sort_desc,
-    }),
-    enabled: !!v.dataset_path,
-  });
+  const { data: indexPage } = useRowPage("eval-index", { limit: EVAL_LIST_LIMIT });
   const openIdx = v.row_idx;
   const pin = usePinHandler();
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Publish the visible index order so Layout's arrow / j / k step through
-  // exactly what's on screen (matters under shuffle + filter).
-  useEffect(() => {
-    if (indexPage) setNavIndices(indexPage.indices);
-    return () => setNavIndices([]);
-  }, [indexPage?.indices.join(",")]);
+  // Step arrow / j / k through the visible order (matters under shuffle + filter).
+  usePublishNav(indexPage?.indices);
 
   // If the current row isn't in the visible set (just opened a filter that
   // excludes it, or fell off the end of a paginated view), snap to the first
