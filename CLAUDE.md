@@ -65,9 +65,13 @@ aren't self-evident from the code.
 
 - **Navigation steps through visible order, not `row_idx ± 1`.**
   `web/src/lib/nav.ts` is a module-level cursor; views publish their
-  `indexPage.indices` into it; `Layout` arrow handlers + the header next/prev
-  buttons read via `nextIdx` / `prevIdx`. Under shuffle / filter / sort the
-  URL's `idx=` therefore jumps non-monotonically — intentional.
+  `indexPage.indices` into it via `usePublishNav` (`web/src/lib/rowPage.ts`);
+  `Layout` arrow handlers + the header next/prev buttons read via `nextIdx` /
+  `prevIdx`. Under shuffle / filter / sort the URL's `idx=` therefore jumps
+  non-monotonically — intentional. New views: fetch the page with `useRowPage`
+  and publish order with `usePublishNav` rather than re-rolling the `useQuery` +
+  `setNavIndices` effect (the shared seam the multi-sample views were factored
+  onto).
 
 - **Sort + shuffle are mutex.** `/api/datasets/sort` clears `shuffle_seed`
   and vice versa in the BUS publish; the SQL query in `_build_rows_query`
