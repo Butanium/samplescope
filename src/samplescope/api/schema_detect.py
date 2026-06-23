@@ -5,13 +5,16 @@ import json
 from pathlib import Path
 from typing import Literal
 
-ViewKind = Literal["chat", "table", "metrics", "eval_log", "json"]
+ViewKind = Literal["chat", "table", "metrics", "eval_log", "json", "markdown"]
+
+MARKDOWN_SUFFIXES = {".md", ".markdown"}
 
 
 def detect_view(path: Path, peek: int = 64) -> tuple[ViewKind, dict]:
     """Inspect the first `peek` rows and pick a view kind plus useful metadata.
 
     Heuristics:
+    - A `.md`/`.markdown` file is rendered as prose, not parsed as rows → markdown
     - All rows have a well-formed `messages: [{role, content}, ...]` list  → chat
     - All rows are flat dicts with a numeric `step` and ≥3 numeric metric cols → metrics
     - Otherwise, all rows are flat dicts (only scalars) → table
@@ -19,6 +22,8 @@ def detect_view(path: Path, peek: int = 64) -> tuple[ViewKind, dict]:
     """
     if path.suffix == ".eval":
         return "eval_log", {}
+    if path.suffix.lower() in MARKDOWN_SUFFIXES:
+        return "markdown", {}
     if path.suffix.lower() in {".csv", ".tsv"}:
         # CSVs are flat by construction; let TableRowView handle them. Schema +
         # rowcount come from DuckDB downstream in `dataset_info`.

@@ -4,13 +4,13 @@ export type DatasetEntry = {
   path: string;
   name: string;
   size_bytes: number;
-  kind: "jsonl" | "csv" | "eval" | "json" | "pdf" | "image" | "other";
+  kind: "jsonl" | "csv" | "eval" | "json" | "pdf" | "image" | "markdown" | "other";
   parent: string;
 };
 
 export type DatasetInfo = {
   path: string;
-  view_kind: "chat" | "table" | "metrics" | "eval_log" | "json";
+  view_kind: "chat" | "table" | "metrics" | "eval_log" | "json" | "markdown";
   row_count: number;
   columns: string[];
   detect_meta: Record<string, unknown>;

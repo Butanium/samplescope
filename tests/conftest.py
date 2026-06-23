@@ -63,6 +63,7 @@ def dataset_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     (sub / "flat.jsonl").write_text(
         "\n".join(json.dumps({"x": i, "y": i * i}) for i in range(5)) + "\n"
     )
+    (d / "notes.md").write_text("# Title\n\nSome **markdown** prose.\n")
     return d
 
 

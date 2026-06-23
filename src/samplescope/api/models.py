@@ -11,7 +11,7 @@ class DatasetEntry(BaseModel):
     path: str
     name: str
     size_bytes: int
-    kind: Literal["jsonl", "csv", "eval", "json", "pdf", "image", "other"]
+    kind: Literal["jsonl", "csv", "eval", "json", "pdf", "image", "markdown", "other"]
     parent: str
 
 

@@ -18,8 +18,21 @@ def test_list_datasets(server: str):
     assert by_name["chat.jsonl"]["kind"] == "jsonl"
     assert by_name["metrics.csv"]["kind"] == "csv"
     assert by_name["flat.jsonl"]["kind"] == "jsonl"
+    assert by_name["notes.md"]["kind"] == "markdown"
     # Paths are relative to the serving root and include nesting.
     assert by_name["flat.jsonl"]["path"].endswith("nested/flat.jsonl")
+
+
+def test_markdown_info_and_raw(server: str):
+    """A `.md` file detects as the markdown view kind and serves its raw text."""
+    path = _path_of(server, "notes.md")
+    info = httpx.get(f"{server}/api/datasets/info", params={"path": path}).json()
+    assert info["view_kind"] == "markdown"
+    # Markdown bypasses the row pipeline — no rows, no columns.
+    assert info["row_count"] == 0
+    assert info["columns"] == []
+    raw = httpx.get(f"{server}/api/datasets/file", params={"path": path}).text
+    assert "# Title" in raw and "**markdown**" in raw
 
 
 def _path_of(server: str, name: str) -> str:

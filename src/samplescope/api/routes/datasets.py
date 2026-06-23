@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from ..duck import cursor, safe_path
 from ..models import DatasetEntry, DatasetInfo, RowPage
-from ..schema_detect import detect_view
+from ..schema_detect import MARKDOWN_SUFFIXES, detect_view
 from ..settings import SETTINGS
 from ..state import BUS
 
@@ -166,6 +166,8 @@ def _classify(p: Path) -> str:
         return "eval"
     if s == ".json":
         return "json"
+    if s in MARKDOWN_SUFFIXES:
+        return "markdown"
     if s == ".pdf":
         return "pdf"
     if s in IMAGE_SUFFIXES:

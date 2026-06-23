@@ -5,7 +5,7 @@ import { useViewerState } from "../lib/state";
 import { usePref } from "../lib/prefs";
 import { fmtBytes, cn, copyToClipboard, joinPath } from "../lib/utils";
 import type { DatasetEntry } from "../lib/types";
-import { ChevronRight, ChevronDown, FileText, FileBox, FileJson, FileCode, FileSpreadsheet, Image as ImageIcon, FileType, Plus, X, EyeOff, RefreshCw } from "lucide-react";
+import { ChevronRight, ChevronDown, FileText, FileBox, FileJson, FileCode, FileSpreadsheet, Image as ImageIcon, FileType, BookText, Plus, X, EyeOff, RefreshCw } from "lucide-react";
 import { usePinHandler } from "../lib/pin";
 import { useUrlSync } from "../lib/url";
 import TabContextMenu from "./ui/TabContextMenu";
@@ -54,6 +54,11 @@ export default function DatasetTree() {
   const [ignorePatterns, setIgnorePatterns] = usePref<string[]>("tree.ignorePatterns", []);
   const [ignoreOpen, setIgnoreOpen] = usePref<boolean>("tree.ignoreOpen", false);
   const [draft, setDraft] = useState("");
+
+  // `.md`/`.markdown` files are served by the backend but hidden from the tree
+  // by default (research repos are full of READMEs / CLAUDE.md noise). The
+  // toggle next to the refresh button flips this; persisted like the rest.
+  const [showMarkdown, setShowMarkdown] = usePref<boolean>("tree.showMarkdown", false);
 
   // Compile each pattern once; an invalid regex is surfaced in the editor (red
   // border + the engine's message) and skipped when filtering rather than
@@ -108,12 +113,13 @@ export default function DatasetTree() {
   const { filtered, ignoredCount } = useMemo(() => {
     if (!data) return { filtered: [] as DatasetEntry[], ignoredCount: 0 };
     const f = filter.toLowerCase();
-    const textPass = f ? data.filter((d) => d.path.toLowerCase().includes(f)) : data;
+    let textPass = f ? data.filter((d) => d.path.toLowerCase().includes(f)) : data;
+    if (!showMarkdown) textPass = textPass.filter((d) => d.kind !== "markdown");
     const res = ignoreEnabled ? (compiled.map((c) => c.re).filter(Boolean) as RegExp[]) : [];
     if (res.length === 0) return { filtered: textPass, ignoredCount: 0 };
     const kept = textPass.filter((d) => !res.some((re) => re.test(d.path)));
     return { filtered: kept, ignoredCount: textPass.length - kept.length };
-  }, [data, filter, ignoreEnabled, compiled]);
+  }, [data, filter, ignoreEnabled, compiled, showMarkdown]);
 
   const tree = useMemo(() => buildTree(filtered), [filtered]);
 
@@ -130,14 +136,28 @@ export default function DatasetTree() {
       <div className="px-3 py-2 border-b border-zinc-200 dark:border-zinc-800">
         <div className="flex items-center justify-between mb-1">
           <div className="text-xs text-zinc-500 uppercase tracking-wide">datasets</div>
-          <button
-            onClick={() => refetch()}
-            disabled={isFetching}
-            title="refresh file list"
-            className="p-0.5 rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60 disabled:opacity-60"
-          >
-            <RefreshCw size={12} className={cn(isFetching && "animate-spin")} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowMarkdown(!showMarkdown)}
+              title={showMarkdown ? "hide .md files" : "show .md files"}
+              className={cn(
+                "p-0.5 rounded hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60",
+                showMarkdown
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200",
+              )}
+            >
+              <BookText size={12} />
+            </button>
+            <button
+              onClick={() => refetch()}
+              disabled={isFetching}
+              title="refresh file list"
+              className="p-0.5 rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60 disabled:opacity-60"
+            >
+              <RefreshCw size={12} className={cn(isFetching && "animate-spin")} />
+            </button>
+          </div>
         </div>
         <input
           value={filter}
@@ -310,6 +330,7 @@ function FileRow({ entry, depth, active, onContext }: { entry: DatasetEntry; dep
     entry.kind === "eval" ? FileBox
     : entry.kind === "json" ? FileJson
     : entry.kind === "jsonl" ? FileText
+    : entry.kind === "markdown" ? BookText
     : entry.kind === "csv" ? FileSpreadsheet
     : entry.kind === "image" ? ImageIcon
     : entry.kind === "pdf" ? FileType
