@@ -16,7 +16,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 
 from ..duck import cursor, safe_path
-from ..models import DatasetEntry, DatasetInfo, RowPage
+from ..models import DatasetEntry, DatasetInfo, GroupBucket, GroupsResponse, RowPage
 from ..schema_detect import MARKDOWN_SUFFIXES, FileKind, detect_view
 from ..settings import SETTINGS
 from ..state import BUS
@@ -325,6 +325,67 @@ def _jsonify(d: dict) -> dict:
                 pass
         out[k] = v
     return out
+
+
+@router.get("/groups", response_model=GroupsResponse)
+def group_rows(
+    path: str,
+    column: str,
+    filter_regex: str | None = None,
+    filter_column: str | None = None,
+    shuffle_seed: int | None = None,
+    sort_column: str | None = None,
+    sort_desc: bool = False,
+    cap: int = Query(20_000, le=200_000),
+) -> GroupsResponse:
+    """Bucket the visible rows by `column`'s value, preserving the visible order.
+
+    Drives the group-by *navigation* overlay (cycle through samples sharing a
+    value) — not a different row set, just a different way to step. Composes
+    with filter/sort/shuffle exactly like `/rows` does. Groups are ordered by
+    first appearance; within a group, members keep visible order. `__pos` pins
+    the visible order through the grouping projection (a bare subquery wouldn't
+    be guaranteed to preserve the inner ORDER BY)."""
+    p = safe_path(path)
+    sql_selection: list[int] | None = None
+    if (
+        BUS.state.sql_mode == "selection"
+        and BUS.state.sql_selection is not None
+        and BUS.state.dataset_path == path
+    ):
+        sql_selection = BUS.state.sql_selection
+    inner, params = _build_rows_query(
+        p, filter_regex, filter_column, shuffle_seed, sort_column, sort_desc, sql_selection,
+    )
+    with cursor() as cur:
+        valid = {d[0] for d in cur.execute(inner + " LIMIT 0", params).description}
+        if column not in valid:
+            raise HTTPException(400, f"unknown column {column!r}")
+        col = _quote_ident(column)
+        q = (
+            f"SELECT __idx, CAST({col} AS VARCHAR) AS __g FROM ("
+            f"  SELECT *, ROW_NUMBER() OVER () AS __pos FROM ({inner}) s0"
+            f") s1 ORDER BY __pos LIMIT {int(cap) + 1}"
+        )
+        rows = cur.execute(q, params).fetchall()
+    truncated = len(rows) > cap
+    rows = rows[:cap]
+    groups: list[GroupBucket] = []
+    where: dict[str | None, int] = {}
+    for idx, gval in rows:
+        gi = where.get(gval)
+        if gi is None:
+            where[gval] = len(groups)
+            groups.append(GroupBucket(value=gval, indices=[]))
+            gi = where[gval]
+        groups[gi].indices.append(int(idx))
+    return GroupsResponse(
+        column=column,
+        groups=groups,
+        total_groups=len(groups),
+        total_rows=len(rows),
+        truncated=truncated,
+    )
 
 
 @router.get("/sample", response_model=RowPage)

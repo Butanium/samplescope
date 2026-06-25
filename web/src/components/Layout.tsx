@@ -20,7 +20,7 @@ import ThemeToggle from "./ThemeToggle";
 import { useViewerState } from "../lib/state";
 import { useUrlSync } from "../lib/url";
 import { api } from "../lib/api";
-import { nextIdx, prevIdx } from "../lib/nav";
+import { nextIdx, prevIdx, nextMember, prevMember } from "../lib/nav";
 import { MessageSquare, Database, Star, Scale, Terminal, HelpCircle, Highlighter, Image as ImageIcon, ChevronDown, ChevronUp, LineChart as LineChartIcon, Table as TableIcon } from "lucide-react";
 import { cn } from "../lib/utils";
 
@@ -53,6 +53,13 @@ export default function Layout() {
         e.preventDefault();
         const target = prevIdx(v.row_idx);
         api.goto(target != null ? target : Math.max(0, v.row_idx - 1));
+      } else if (e.key === "]") {
+        // Cycle within the current group (no-op unless group-by is active).
+        const t = nextMember(v.row_idx);
+        if (t != null) { e.preventDefault(); api.goto(t); }
+      } else if (e.key === "[") {
+        const t = prevMember(v.row_idx);
+        if (t != null) { e.preventDefault(); api.goto(t); }
       } else if (e.key === "s") api.shuffle();
       else if (e.key === "c") {
         const opening = drawer !== "chat";

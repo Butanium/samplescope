@@ -35,6 +35,23 @@ class RowPage(BaseModel):
     total_filtered: int
 
 
+class GroupBucket(BaseModel):
+    """One group: a distinct value of the group-by column + its member row idxs,
+    in visible order."""
+    value: str | None
+    indices: list[int]
+
+
+class GroupsResponse(BaseModel):
+    """Samples bucketed by a column's value, over the current filter/sort/shuffle.
+    Groups are ordered by first appearance in the visible order."""
+    column: str
+    groups: list[GroupBucket]
+    total_groups: int
+    total_rows: int
+    truncated: bool
+
+
 class MarkRecord(BaseModel):
     dataset_path: str
     row_idx: int

@@ -286,6 +286,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/datasets/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Group Rows
+         * @description Bucket the visible rows by `column`'s value, preserving the visible order.
+         *
+         *     Drives the group-by *navigation* overlay (cycle through samples sharing a
+         *     value) — not a different row set, just a different way to step. Composes
+         *     with filter/sort/shuffle exactly like `/rows` does. Groups are ordered by
+         *     first appearance; within a group, members keep visible order. `__pos` pins
+         *     the visible order through the grouping projection (a bare subquery wouldn't
+         *     be guaranteed to preserve the inner ORDER BY).
+         */
+        get: operations["group_rows_api_datasets_groups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/datasets/info": {
         parameters: {
             query?: never;
@@ -1092,6 +1119,34 @@ export interface components {
              */
             view_kind: "chat" | "table" | "metrics" | "eval_log" | "json" | "markdown";
         };
+        /**
+         * GroupBucket
+         * @description One group: a distinct value of the group-by column + its member row idxs,
+         *     in visible order.
+         */
+        GroupBucket: {
+            /** Indices */
+            indices: number[];
+            /** Value */
+            value: string | null;
+        };
+        /**
+         * GroupsResponse
+         * @description Samples bucketed by a column's value, over the current filter/sort/shuffle.
+         *     Groups are ordered by first appearance in the visible order.
+         */
+        GroupsResponse: {
+            /** Column */
+            column: string;
+            /** Groups */
+            groups: components["schemas"]["GroupBucket"][];
+            /** Total Groups */
+            total_groups: number;
+            /** Total Rows */
+            total_rows: number;
+            /** Truncated */
+            truncated: boolean;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1724,6 +1779,44 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    group_rows_api_datasets_groups_get: {
+        parameters: {
+            query: {
+                path: string;
+                column: string;
+                filter_regex?: string | null;
+                filter_column?: string | null;
+                shuffle_seed?: number | null;
+                sort_column?: string | null;
+                sort_desc?: boolean;
+                cap?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupsResponse"];
                 };
             };
             /** @description Validation Error */

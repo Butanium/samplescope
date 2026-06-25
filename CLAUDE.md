@@ -97,6 +97,21 @@ aren't self-evident from the code.
   and vice versa in the BUS publish; the SQL query in `_build_rows_query`
   picks one ORDER BY branch.
 
+- **Group-by is a navigation overlay, not a different row set.** Pick a column
+  (`group=<col>` in the URL, client-only state — never hits ViewerState/SSE) and
+  `GET /api/datasets/groups` buckets the *visible* rows (it reuses
+  `_build_rows_query`, so it composes with filter/sort/shuffle/SQL-selection);
+  groups are ordered by first appearance, members keep visible order. `useGroups`
+  (`web/src/lib/groups.ts`) publishes the buckets into the nav cursor via
+  `setNavGroups`, which makes `nextIdx`/`prevIdx` (so j/k + header arrows) step
+  *between groups* (landing on each group's first member); `nextMember`/
+  `prevMember` (the header `Cycler` + `]`/`[`) walk within one group. Grouping
+  takes precedence over the flat `setNavIndices` list while active. The view
+  itself is untouched — it just renders whatever `row_idx` the overlay lands on,
+  so this works for every sample view (chat/json/eval), not just jsonl. The
+  endpoint's `__pos` (a ROW_NUMBER over the inner ordered query) pins visible
+  order through the grouping projection — a bare subquery wouldn't guarantee it.
+
 - **`.eval` logs route through the JSONL pipeline via cache materialization.**
   `query_path(p)` in `api/routes/datasets.py` swaps any `.eval` for a cached
   one-row-per-sample JSONL under the state-dir cache. That's why

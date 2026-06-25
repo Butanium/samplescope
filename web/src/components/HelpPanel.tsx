@@ -4,8 +4,10 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
   {
     title: "navigate",
     keys: [
-      ["j  ↓  →", "next row"],
-      ["k  ↑  ←", "previous row"],
+      ["j  ↓  →", "next row (next group when grouped)"],
+      ["k  ↑  ←", "previous row (prev group when grouped)"],
+      ["]", "next sample in group"],
+      ["[", "prev sample in group"],
       ["s", "shuffle"],
       ["/", "focus regex filter"],
     ],

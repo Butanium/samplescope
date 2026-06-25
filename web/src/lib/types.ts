@@ -23,6 +23,8 @@ export type DatasetInfo = Schemas["DatasetInfo"];
 export type MarkRecord = Schemas["MarkRecord"];
 export type JudgePreset = Schemas["JudgePreset"];
 export type JudgeSettings = Schemas["JudgeSettings"];
+export type GroupBucket = Schemas["GroupBucket"];
+export type GroupsResponse = Schemas["GroupsResponse"];
 
 /** File-tree classification, derived from a file's extension. */
 export type FileKind = DatasetEntry["kind"];

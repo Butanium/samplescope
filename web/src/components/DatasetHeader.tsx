@@ -2,13 +2,17 @@ import { useState, useEffect } from "react";
 import { api } from "../lib/api";
 import { useViewerState } from "../lib/state";
 import { useUrlSync } from "../lib/url";
-import { nextIdx, prevIdx } from "../lib/nav";
+import { nextIdx, prevIdx, nextMember, prevMember } from "../lib/nav";
+import { useGroups, type GroupPos } from "../lib/groups";
 import { cn, copyToClipboard } from "../lib/utils";
-import { Shuffle, ChevronLeft, ChevronRight, X, Filter, ArrowUp, ArrowDown } from "lucide-react";
+import { Shuffle, ChevronLeft, ChevronRight, X, Filter, ArrowUp, ArrowDown, Layers } from "lucide-react";
 
 export default function DatasetHeader() {
   const v = useViewerState();
-  const { url, setFilter } = useUrlSync();
+  const { url, setFilter, setGroupBy } = useUrlSync();
+  // Mounting this here keeps the grouping published to the nav cursor (so j/k
+  // step between groups) for the whole session, and feeds the cycler below.
+  const groups = useGroups();
   const [textDraft, setTextDraft] = useState(url.filterText ?? "");
   const [columnDraft, setColumnDraft] = useState(url.filterColumn ?? "");
   const [isRegex, setIsRegex] = useState(url.filterIsRegex);
@@ -89,9 +93,11 @@ export default function DatasetHeader() {
           const t = nextIdx(idx);
           api.goto(t != null ? t : Math.min(total - 1, idx + 1));
         }}
-        className="p-1 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded" title="next (j)">
+        className="p-1 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded"
+        title={groups.groupBy ? "next group (j)" : "next (j)"}>
         <ChevronRight size={14} />
       </button>
+      {groups.groupBy && <Cycler pos={groups.posOf(idx)} groupCount={groups.groupCount} />}
       <button
         onClick={() => api.shuffle()}
         className={cn(
@@ -108,6 +114,7 @@ export default function DatasetHeader() {
         sortColumn={v.sort_column}
         sortDesc={v.sort_desc}
       />
+      <GroupControl columns={v.columns} groupBy={groups.groupBy} onChange={setGroupBy} />
       <div className="flex items-center gap-1 border-l border-zinc-200 dark:border-zinc-800 pl-2 ml-1">
         <Filter size={14} className="opacity-60" />
         <div className="relative">
@@ -197,6 +204,85 @@ function SortControl({
       >
         {sortDesc ? <ArrowDown size={13} /> : <ArrowUp size={13} />}
       </button>
+    </div>
+  );
+}
+
+/** Pick a column to bucket samples by. The header arrows / j / k then step
+ *  between groups; the Cycler walks the samples inside one group. */
+function GroupControl({
+  columns, groupBy, onChange,
+}: { columns: string[]; groupBy: string | null; onChange: (c: string | null) => void }) {
+  const choices = columns.filter((c) => c !== "__idx");
+  return (
+    <div className="flex items-center gap-1 border-l border-zinc-200 dark:border-zinc-800 pl-2 ml-1">
+      <Layers size={13} className={cn(groupBy ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-500")} />
+      <select
+        value={groupBy ?? ""}
+        onChange={(e) => onChange(e.target.value || null)}
+        className={cn(
+          "max-w-[140px] px-1 py-0.5 bg-white dark:bg-zinc-900 border rounded font-mono text-[11px] outline-none focus:border-emerald-600",
+          groupBy ? "border-emerald-500/60" : "border-zinc-200 dark:border-zinc-800",
+        )}
+        title="group samples by a column's value (navigation overlay)"
+      >
+        <option value="">group: —</option>
+        {choices.map((c) => (
+          <option key={c} value={c}>{c}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+/** The "cycler thing": walks the samples sharing the current group's value,
+ *  in place. `‹ m / M ›` plus the group's value + group position. */
+function Cycler({ pos, groupCount }: { pos: GroupPos | null; groupCount: number }) {
+  const v = useViewerState();
+  if (!pos) {
+    return <span className="text-[11px] text-zinc-400 dark:text-zinc-600 italic">no group</span>;
+  }
+  const label = pos.value === null ? "∅ null" : pos.value === "" ? "∅ empty" : pos.value;
+  return (
+    <div
+      className="flex items-center gap-1 rounded border border-emerald-500/50 bg-emerald-500/10 px-1 py-0.5"
+      title={`group "${label}" · sample ${pos.mi + 1} of ${pos.memberCount} · group ${pos.gi + 1} of ${groupCount}`}
+    >
+      <span className="max-w-[120px] truncate font-mono text-[11px] text-emerald-800 dark:text-emerald-300">
+        {label}
+      </span>
+      <button
+        onClick={() => { const t = prevMember(v.row_idx); if (t != null) api.goto(t); }}
+        disabled={pos.mi === 0}
+        className={cn(
+          "p-0.5 rounded",
+          pos.mi === 0
+            ? "text-zinc-300 dark:text-zinc-700 cursor-not-allowed"
+            : "hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300",
+        )}
+        title="prev in group ([)"
+      >
+        <ChevronLeft size={13} />
+      </button>
+      <span className="font-mono text-[11px] tabular-nums text-emerald-800 dark:text-emerald-300">
+        {pos.mi + 1}/{pos.memberCount}
+      </span>
+      <button
+        onClick={() => { const t = nextMember(v.row_idx); if (t != null) api.goto(t); }}
+        disabled={pos.mi >= pos.memberCount - 1}
+        className={cn(
+          "p-0.5 rounded",
+          pos.mi >= pos.memberCount - 1
+            ? "text-zinc-300 dark:text-zinc-700 cursor-not-allowed"
+            : "hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300",
+        )}
+        title="next in group (])"
+      >
+        <ChevronRight size={13} />
+      </button>
+      <span className="pl-0.5 text-[10px] text-emerald-700/70 dark:text-emerald-400/60 tabular-nums">
+        grp {pos.gi + 1}/{groupCount}
+      </span>
     </div>
   );
 }

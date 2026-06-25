@@ -83,6 +83,23 @@ def test_json_field_layout_shared_across_same_schema(page: Page, server: str):
     expect(main.get_by_text(re.compile("more field")).first).to_be_visible()
 
 
+def test_group_by_cycler_navigation(page: Page, server: str):
+    page.goto(server)
+    page.get_by_text("chat.jsonl", exact=True).click()
+    expect(page.get_by_text("question 0", exact=True)).to_be_visible()
+    # Group by the even/odd label → the cycler appears (row 0 is in group 1/2).
+    page.get_by_title(re.compile("group samples")).select_option("label")
+    expect(page.get_by_text(re.compile(r"grp 1/2"))).to_be_visible()
+    # "next in group" steps to the next same-label sample: even members are
+    # rows 0,2,4… so idx advances 0 → 2 (not 1).
+    page.get_by_title(re.compile(r"next in group")).click()
+    expect(page.locator("input[type=number]")).to_have_value("2")
+    # j jumps to the *next group* (odd) — its first member is row 1.
+    page.locator("body").press("j")
+    expect(page.locator("input[type=number]")).to_have_value("1")
+    expect(page.get_by_text(re.compile(r"grp 2/2"))).to_be_visible()
+
+
 def test_regex_filter_narrows_rows(page: Page, server: str):
     page.goto(server)
     page.get_by_text("chat.jsonl", exact=True).click()

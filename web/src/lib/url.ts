@@ -37,6 +37,7 @@ export type UrlState = {
   session: string | null;
   viewMode: ViewMode;
   raw: boolean;
+  groupBy: string | null;
 };
 
 const DRAWERS: DrawerKey[] = ["none", "chat", "marks", "judges", "sql", "help", "highlights", "plots"];
@@ -59,6 +60,7 @@ export function readUrl(params: URLSearchParams): UrlState {
     session: get("session") || null,
     viewMode: get("mode") === "single" ? "single" : "list",
     raw: get("raw") === "1",
+    groupBy: get("group") || null,
   };
 }
 
@@ -108,6 +110,15 @@ export function useUrlSync() {
     }, { replace: true });
   }, [setParams]);
 
+  const setGroupBy = useCallback((column: string | null) => {
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (column) next.set("group", column);
+      else next.delete("group");
+      return next;
+    }, { replace: true });
+  }, [setParams]);
+
   /** Apply a filter atomically: writes URL params + posts to the API. */
   const setFilter = useCallback(async (text: string | null, column: string | null, isRegex: boolean) => {
     setParams((prev) => {
@@ -121,7 +132,7 @@ export function useUrlSync() {
     await api.setFilter(regex, column);
   }, [setParams]);
 
-  return { url, setDrawer, setSession, setViewMode, setRaw, setFilter };
+  return { url, setDrawer, setSession, setViewMode, setRaw, setGroupBy, setFilter };
 }
 
 /**

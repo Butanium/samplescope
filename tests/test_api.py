@@ -72,6 +72,42 @@ def test_regex_filter(server: str):
     assert page["total_filtered"] == 10
 
 
+def test_group_by_buckets_in_visible_order(server: str):
+    path = _path_of(server, "chat.jsonl")
+    g = httpx.get(
+        f"{server}/api/datasets/groups", params={"path": path, "column": "label"}
+    ).json()
+    assert g["column"] == "label"
+    assert g["total_groups"] == 2
+    assert g["total_rows"] == 20
+    assert not g["truncated"]
+    # First appearance order: row 0 is "even", so the even bucket comes first;
+    # within a bucket, members keep visible (row) order.
+    buckets = {b["value"]: b["indices"] for b in g["groups"]}
+    assert g["groups"][0]["value"] == "even"
+    assert buckets["even"] == [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
+    assert buckets["odd"] == [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]
+
+
+def test_group_by_composes_with_filter(server: str):
+    path = _path_of(server, "chat.jsonl")
+    g = httpx.get(
+        f"{server}/api/datasets/groups",
+        params={"path": path, "column": "label", "filter_regex": "question 1[0-9]"},
+    ).json()
+    # Only rows 10..19 are visible → grouping is computed over those.
+    assert {b["value"]: b["indices"] for b in g["groups"]} == {
+        "even": [10, 12, 14, 16, 18],
+        "odd": [11, 13, 15, 17, 19],
+    }
+
+
+def test_group_by_unknown_column_is_400(server: str):
+    path = _path_of(server, "chat.jsonl")
+    r = httpx.get(f"{server}/api/datasets/groups", params={"path": path, "column": "nope"})
+    assert r.status_code == 400
+
+
 def test_csv_info_and_rows(server: str):
     path = _path_of(server, "metrics.csv")
     info = httpx.get(f"{server}/api/datasets/info", params={"path": path}).json()
