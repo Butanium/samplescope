@@ -68,7 +68,8 @@ aren't self-evident from the code.
   Each top-level field is in one of three states — **body** (the card stack),
   **drawer** (folded into "N more fields"), or **header** (a compact chip next
   to the row index) — plus a drag-reorder of the body fields. `useFieldLayout`
-  (`JsonTreeView.tsx`) persists `{order, hidden, header}`. The pref key is the
+  (`web/src/components/views/fieldLayout.tsx`) persists `{order, hidden, header}`.
+  The pref key is the
   *schema*, not the path: `json.fields:<fieldSchemaKey>`, an FNV-1a hash of the
   **sorted top-level field names**. So arranging one `{prompt,response,score}`
   file carries to every file with that same field set (sibling result dumps,
@@ -82,6 +83,15 @@ aren't self-evident from the code.
   not state, because the drop event can fire before React commits the
   dragstart's `setState`. The toolbar's "↺ fields" resets the schema's layout.
   Reads tolerate older two-field (`{order, hidden}`) prefs via `?? []`.
+
+- **The JSON sample view is three files (a clean DAG).** `views/jsonCards.tsx`
+  is the leaf: the generic JSON→cards renderer (`ValueNode`/`Card`/`ScalarField`
+  + the `Json`/`NodeCtx` types). `views/fieldLayout.tsx` builds the top-level
+  field-layout subsystem on top of it (the bullet above). `views/JsonTreeView.tsx`
+  is just the view shells (`SingleMode`/`ListMode`/`RecordBlock` + toolbars) that
+  compose both. Edit the renderer in `jsonCards`, the field UX in `fieldLayout`,
+  the single/scroll plumbing in `JsonTreeView` — no import cycles (leaf ← layout
+  ← shells).
 
 - **Navigation steps through visible order, not `row_idx ± 1`.**
   `web/src/lib/nav.ts` is a module-level cursor; views publish their
