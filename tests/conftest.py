@@ -63,6 +63,23 @@ def dataset_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     (sub / "flat.jsonl").write_text(
         "\n".join(json.dumps({"x": i, "y": i * i}) for i in range(5)) + "\n"
     )
+    # Multi-field records with one long free-text field → detected as the `json`
+    # per-sample card view (exercises the top-level field layout: hide / reorder).
+    (d / "records.jsonl").write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "rid": i,
+                    "label": f"item-{i}",
+                    "score": round(i * 0.1, 2),
+                    "response": "A deliberately long free-text response field so the "
+                    "schema sniffer routes this file to the json card view. " * 3,
+                }
+            )
+            for i in range(6)
+        )
+        + "\n"
+    )
     (d / "notes.md").write_text("# Title\n\nSome **markdown** prose.\n")
     return d
 

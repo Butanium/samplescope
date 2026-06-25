@@ -6,6 +6,8 @@ message if no frontend build exists.
 """
 from __future__ import annotations
 
+import re
+
 import httpx
 import pytest
 from playwright.sync_api import Page, expect
@@ -37,6 +39,21 @@ def test_open_csv_renders_table(page: Page, server: str):
     # the column names also appear in a hidden filter-column <option>.)
     expect(page.get_by_text("loss", exact=True).filter(visible=True)).to_be_visible()
     expect(page.get_by_text("acc", exact=True).filter(visible=True)).to_be_visible()
+
+
+def test_json_field_hide_folds_and_persists(page: Page, server: str):
+    page.goto(server)
+    page.get_by_text("records.jsonl", exact=True).click()
+    main = page.get_by_role("main")
+    # json card view renders each top-level field as a `key:` label; no drawer yet.
+    expect(main.get_by_text("response:", exact=True).first).to_be_visible()
+    expect(main.get_by_text(re.compile("more field"))).to_have_count(0)
+    # Hide the first field → it folds into a "1 more field" drawer.
+    main.get_by_title(re.compile("^hide")).first.click()
+    expect(main.get_by_text(re.compile("more field")).first).to_be_visible()
+    # The choice is a per-dataset pref: it survives a reload.
+    page.reload()
+    expect(main.get_by_text(re.compile("more field")).first).to_be_visible()
 
 
 def test_regex_filter_narrows_rows(page: Page, server: str):

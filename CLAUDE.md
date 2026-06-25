@@ -63,6 +63,20 @@ aren't self-evident from the code.
   So "what you see" = detection default, overridable client-side; nothing is
   locked to one renderer.
 
+- **JSON cards: per-dataset top-level field layout.** Only the *outermost*
+  object of each row gets it (nested cards keep the plain recursive render).
+  `useFieldLayout` (`JsonTreeView.tsx`) persists `{order, hidden}` in a
+  `usePref` key (`json.fields:<dataset_path>`), so a drag-reorder or hide
+  applies to **every** sample in the file and survives reloads — both
+  `SingleMode` and each `RecordBlock` read the same pref. `normalizeOrder`
+  folds in present-but-unseen keys (natural order, appended) and drops stale
+  ones, so the persisted partial `order` never makes a new field vanish.
+  Drag uses native HTML5 DnD armed off the grip handle's mousedown (so a card
+  header's collapse-click is untouched); the drag *source* lives in a ref, not
+  state, because the synthetic-or-fast drop event can fire before React commits
+  the dragstart's `setState`. Hidden fields fold into a collapsed "N more
+  fields" drawer; the toolbar's "↺ fields" resets the layout.
+
 - **Navigation steps through visible order, not `row_idx ± 1`.**
   `web/src/lib/nav.ts` is a module-level cursor; views publish their
   `indexPage.indices` into it via `usePublishNav` (`web/src/lib/rowPage.ts`);
