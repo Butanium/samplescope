@@ -102,6 +102,16 @@ def test_group_by_composes_with_filter(server: str):
     }
 
 
+def test_group_by_cap_marks_truncated(server: str):
+    path = _path_of(server, "chat.jsonl")
+    g = httpx.get(
+        f"{server}/api/datasets/groups", params={"path": path, "column": "label", "cap": 5}
+    ).json()
+    # Only the first 5 rows get bucketed; the flag surfaces the cap to the UI.
+    assert g["truncated"] is True
+    assert g["total_rows"] == 5
+
+
 def test_group_by_unknown_column_is_400(server: str):
     path = _path_of(server, "chat.jsonl")
     r = httpx.get(f"{server}/api/datasets/groups", params={"path": path, "column": "nope"})

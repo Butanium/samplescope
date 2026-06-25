@@ -40,6 +40,10 @@ export function useGroups() {
         sort_desc: v.sort_desc,
       }),
     enabled: !!v.dataset_path && !!groupBy,
+    // A 400 means the column isn't in this dataset (e.g. the group carried over
+    // from a sibling file that had it). Don't retry-spam — just degrade to
+    // ungrouped until the user picks a valid column.
+    retry: false,
   });
 
   const groups: GroupBucket[] | null = (groupBy && q.data?.groups) || null;

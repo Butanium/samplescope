@@ -5,7 +5,7 @@ import { useUrlSync } from "../lib/url";
 import { nextIdx, prevIdx, nextMember, prevMember } from "../lib/nav";
 import { useGroups, type GroupPos } from "../lib/groups";
 import { cn, copyToClipboard } from "../lib/utils";
-import { Shuffle, ChevronLeft, ChevronRight, X, Filter, ArrowUp, ArrowDown, Layers } from "lucide-react";
+import { Shuffle, ChevronLeft, ChevronRight, X, Filter, ArrowUp, ArrowDown, Layers, AlertTriangle } from "lucide-react";
 
 export default function DatasetHeader() {
   const v = useViewerState();
@@ -97,7 +97,13 @@ export default function DatasetHeader() {
         title={groups.groupBy ? "next group (j)" : "next (j)"}>
         <ChevronRight size={14} />
       </button>
-      {groups.groupBy && <Cycler pos={groups.posOf(idx)} groupCount={groups.groupCount} />}
+      {groups.groupBy && groups.groups && (
+        <Cycler
+          pos={groups.posOf(idx)}
+          groupCount={groups.groupCount}
+          truncated={groups.truncated}
+        />
+      )}
       <button
         onClick={() => api.shuffle()}
         className={cn(
@@ -245,15 +251,36 @@ function GroupControl({
   );
 }
 
+/** Amber "capped" pill: grouping was bounded (huge dataset), so some samples
+ *  aren't bucketed — surfaced rather than silently navigating a partial set. */
+function TruncatedBadge() {
+  return (
+    <span
+      title="grouping is capped at 20,000 rows — samples past the cap aren't bucketed (narrow with a filter to see all)"
+      className="flex items-center gap-0.5 text-[10px] text-amber-600 dark:text-amber-400"
+    >
+      <AlertTriangle size={11} /> capped
+    </span>
+  );
+}
+
 /** The "cycler thing": walks the samples sharing the current group's value,
  *  in place. `‹ m / M ›` plus the group's value + group position. */
-function Cycler({ pos, groupCount }: { pos: GroupPos | null; groupCount: number }) {
+function Cycler({
+  pos, groupCount, truncated,
+}: { pos: GroupPos | null; groupCount: number; truncated: boolean }) {
   const v = useViewerState();
   if (!pos) {
-    return <span className="text-[11px] text-zinc-400 dark:text-zinc-600 italic">no group</span>;
+    return (
+      <span className="flex items-center gap-1.5 text-[11px] text-zinc-400 dark:text-zinc-600">
+        <span className="italic">no group</span>
+        {truncated && <TruncatedBadge />}
+      </span>
+    );
   }
   const label = pos.value === null ? "∅ null" : pos.value === "" ? "∅ empty" : pos.value;
   return (
+    <>
     <div
       className="flex items-center gap-1 rounded border border-emerald-500/50 bg-emerald-500/10 px-1 py-0.5"
       title={`group "${label}" · sample ${pos.mi + 1} of ${pos.memberCount} · group ${pos.gi + 1} of ${groupCount}`}
@@ -294,5 +321,7 @@ function Cycler({ pos, groupCount }: { pos: GroupPos | null; groupCount: number 
         grp {pos.gi + 1}/{groupCount}
       </span>
     </div>
+    {truncated && <TruncatedBadge />}
+    </>
   );
 }
