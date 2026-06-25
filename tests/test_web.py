@@ -6,6 +6,7 @@ message if no frontend build exists.
 """
 from __future__ import annotations
 
+import json
 import re
 
 import httpx
@@ -23,8 +24,10 @@ def _require_built_ui(server: str):
 def open_file(page: Page, name: str) -> None:
     """Click a file in the tree. Scoped to the tree aside (role=complementary)
     because the header path display shows the *open* dataset's basename, which
-    collides with `get_by_text(name)` once that file is open."""
-    page.get_by_role("complementary").first.get_by_text(name, exact=True).click()
+    collides with `get_by_text(name)` once that file is open. `.first` because a
+    file can also appear in the sidebar's "recent" section — the tree row sorts
+    first in DOM order, so `.first` lands on it."""
+    page.get_by_role("complementary").first.get_by_text(name, exact=True).first.click()
 
 
 def test_open_chat_dataset_and_navigate(page: Page, server: str):
@@ -163,6 +166,40 @@ def test_tree_filter_autorefreshes_for_new_file(page: Page, server: str, dataset
         expect(aside.get_by_text("surprise_new.jsonl", exact=True)).to_be_visible(timeout=10000)
     finally:
         new.unlink(missing_ok=True)
+
+
+def test_tree_recent_and_only_opened(page: Page, server: str):
+    # The shared backend state dir leaks prefs across tests, so reset the
+    # opened-files history + filter deterministically (and pre-expand recent).
+    # Leave only-opened OFF in finally so later tests see the full tree.
+    def setpref(key: str, value) -> None:
+        httpx.put(f"{server}/api/prefs/{key}", json={"value": json.dumps(value)})
+
+    setpref("tree.openedFiles", [])
+    setpref("tree.onlyOpened", False)
+    setpref("tree.recentOpen", True)
+    try:
+        page.goto(server)
+        aside = page.get_by_role("complementary").first
+        # Open two files → both land in the history (recorded from dataset_path).
+        open_file(page, "records.jsonl")
+        expect(page.get_by_role("main").get_by_text("response:", exact=True).first).to_be_visible()
+        open_file(page, "chat.jsonl")
+        expect(page.get_by_text("question 0", exact=True)).to_be_visible()
+        # chat.jsonl now shows BOTH in the tree and in the (expanded) recent
+        # section → 2 occurrences proves the recent section rendered it.
+        expect(aside.get_by_text("chat.jsonl", exact=True)).to_have_count(2)
+        # "only opened" hides never-opened files (metrics.csv) from the tree;
+        # it isn't in recent either, so it vanishes entirely.
+        aside.get_by_title(re.compile(r"only files you've opened")).click()
+        expect(aside.get_by_text("metrics.csv", exact=True)).to_have_count(0)
+        expect(aside.get_by_text("chat.jsonl", exact=True)).to_have_count(2)
+        expect(aside.get_by_text("records.jsonl", exact=True)).to_have_count(2)
+    finally:
+        # Restore defaults so later tests don't inherit a filtered tree or an
+        # expanded recent section (which would double file rows in the sidebar).
+        setpref("tree.onlyOpened", False)
+        setpref("tree.recentOpen", False)
 
 
 def test_regex_filter_narrows_rows(page: Page, server: str):

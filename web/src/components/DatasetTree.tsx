@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useViewerState } from "../lib/state";
 import { usePref } from "../lib/prefs";
 import { fmtBytes, cn, copyToClipboard, joinPath } from "../lib/utils";
 import type { DatasetEntry } from "../lib/types";
-import { ChevronRight, ChevronDown, FileText, FileBox, FileJson, FileCode, FileSpreadsheet, Image as ImageIcon, FileType, BookText, Plus, X, EyeOff, RefreshCw } from "lucide-react";
+import { ChevronRight, ChevronDown, FileText, FileBox, FileJson, FileCode, FileSpreadsheet, Image as ImageIcon, FileType, BookText, Plus, X, EyeOff, RefreshCw, History, Clock } from "lucide-react";
 import { usePinHandler } from "../lib/pin";
 import { useUrlSync } from "../lib/url";
 import TabContextMenu from "./ui/TabContextMenu";
@@ -59,6 +59,14 @@ export default function DatasetTree() {
   // by default (research repos are full of READMEs / CLAUDE.md noise). The
   // toggle next to the refresh button flips this; persisted like the rest.
   const [showMarkdown, setShowMarkdown] = usePref<boolean>("tree.showMarkdown", false);
+
+  // History of opened files (most-recent-first, deduped, capped). Drives the
+  // foldable "recent" section and the "only opened" tree filter. Recorded from
+  // `dataset_path` so every open path counts — tree click, URL deep-link, or a
+  // chat-spawned viewer — not just clicks in this component.
+  const [openedFiles, setOpenedFiles] = usePref<string[]>("tree.openedFiles", []);
+  const [onlyOpened, setOnlyOpened] = usePref<boolean>("tree.onlyOpened", false);
+  const [recentOpen, setRecentOpen] = usePref<boolean>("tree.recentOpen", false);
 
   // Compile each pattern once; an invalid regex is surfaced in the editor (red
   // border + the engine's message) and skipped when filtering rather than
@@ -115,13 +123,36 @@ export default function DatasetTree() {
     const f = filter.toLowerCase();
     let textPass = f ? data.filter((d) => d.path.toLowerCase().includes(f)) : data;
     if (!showMarkdown) textPass = textPass.filter((d) => d.kind !== "markdown");
+    if (onlyOpened) {
+      const opened = new Set(openedFiles);
+      textPass = textPass.filter((d) => opened.has(d.path));
+    }
     const res = ignoreEnabled ? (compiled.map((c) => c.re).filter(Boolean) as RegExp[]) : [];
     if (res.length === 0) return { filtered: textPass, ignoredCount: 0 };
     const kept = textPass.filter((d) => !res.some((re) => re.test(d.path)));
     return { filtered: kept, ignoredCount: textPass.length - kept.length };
-  }, [data, filter, ignoreEnabled, compiled, showMarkdown]);
+  }, [data, filter, ignoreEnabled, compiled, showMarkdown, onlyOpened, openedFiles]);
 
   const tree = useMemo(() => buildTree(filtered), [filtered]);
+
+  // Record the active dataset into the opened-files history (front, deduped,
+  // cap 100). Guard on the front element so re-renders don't re-write the pref.
+  useEffect(() => {
+    const p = v.dataset_path;
+    if (!p || openedFiles[0] === p) return;
+    setOpenedFiles([p, ...openedFiles.filter((x) => x !== p)].slice(0, 100));
+  }, [v.dataset_path, openedFiles, setOpenedFiles]);
+
+  // Recent entries = history paths that still exist in the current scan (so the
+  // row has an icon/parent and opens to something), most-recent-first, top 15.
+  const recentEntries = useMemo(() => {
+    if (!data) return [] as DatasetEntry[];
+    const byPath = new Map(data.map((d) => [d.path, d]));
+    return openedFiles
+      .map((p) => byPath.get(p))
+      .filter((e): e is DatasetEntry => e != null)
+      .slice(0, 15);
+  }, [data, openedFiles]);
 
   // Auto-rescan when the filter text matches nothing in the cached list: the
   // user likely pasted a path to a file created since the last scan. Debounced,
@@ -158,6 +189,18 @@ export default function DatasetTree() {
         <div className="flex items-center justify-between mb-1">
           <div className="text-xs text-zinc-500 uppercase tracking-wide">datasets</div>
           <div className="flex items-center gap-1">
+            <button
+              onClick={() => setOnlyOpened(!onlyOpened)}
+              title={onlyOpened ? "showing only files you've opened — click to show all" : "show only files you've opened"}
+              className={cn(
+                "p-0.5 rounded hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60",
+                onlyOpened
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200",
+              )}
+            >
+              <History size={12} />
+            </button>
             <button
               onClick={() => setShowMarkdown(!showMarkdown)}
               title={showMarkdown ? "hide .md files" : "show .md files"}
@@ -196,13 +239,41 @@ export default function DatasetTree() {
       <div className="flex-1 overflow-y-auto px-1 py-2 text-sm">
         {isLoading && <div className="text-zinc-500 text-xs px-2">loading…</div>}
         {error && <div className="text-red-400 text-xs px-2">{String(error)}</div>}
-        {!isLoading && !error && filter.trim() && filtered.length === 0 && (
+        {!isLoading && !error && filtered.length === 0 && (filter.trim() || onlyOpened) && (
           <div className="text-zinc-500 text-xs px-2 py-1">
-            {isFetching ? "rescanning…" : "no match"}
+            {isFetching
+              ? "rescanning…"
+              : onlyOpened && !filter.trim()
+                ? "no opened files yet"
+                : "no match"}
           </div>
         )}
         {!isLoading && !error && (
           <TreeNode node={tree} depth={0} activePath={v.dataset_path} isOpen={isOpen} toggle={toggle} onFileContext={onFileContext} />
+        )}
+      </div>
+      <div className="border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 text-xs">
+        <button
+          onClick={() => setRecentOpen(!recentOpen)}
+          className="w-full flex items-center gap-1 text-left text-zinc-500 uppercase tracking-wide hover:text-zinc-700 dark:hover:text-zinc-300"
+        >
+          {recentOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <Clock size={12} className="opacity-70" />
+          <span>recent</span>
+          <span className="ml-auto normal-case tracking-normal text-[11px] text-zinc-400 dark:text-zinc-600">
+            {recentEntries.length === 0 ? "none" : recentEntries.length}
+          </span>
+        </button>
+        {recentOpen && (
+          <div className="mt-1 -mx-2">
+            {recentEntries.length === 0 ? (
+              <div className="px-2 py-1 text-[11px] text-zinc-400 dark:text-zinc-600">no files opened yet</div>
+            ) : (
+              recentEntries.map((e) => (
+                <RecentRow key={e.path} entry={e} active={v.dataset_path === e.path} onContext={onFileContext} />
+              ))
+            )}
+          </div>
         )}
       </div>
       <div className="border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 text-xs">
@@ -351,35 +422,43 @@ function TreeNode({ node, depth, activePath, isOpen, toggle, onFileContext }: Tr
   );
 }
 
-function FileRow({ entry, depth, active, onContext }: { entry: DatasetEntry; depth: number; active: boolean; onContext: FileContextHandler }) {
-  const Icon =
-    entry.kind === "eval" ? FileBox
-    : entry.kind === "json" ? FileJson
-    : entry.kind === "jsonl" ? FileText
-    : entry.kind === "markdown" ? BookText
-    : entry.kind === "csv" ? FileSpreadsheet
-    : entry.kind === "image" ? ImageIcon
-    : entry.kind === "pdf" ? FileType
+function iconFor(kind: DatasetEntry["kind"]) {
+  return kind === "eval" ? FileBox
+    : kind === "json" ? FileJson
+    : kind === "jsonl" ? FileText
+    : kind === "markdown" ? BookText
+    : kind === "csv" ? FileSpreadsheet
+    : kind === "image" ? ImageIcon
+    : kind === "pdf" ? FileType
     : FileCode;
+}
+
+/** Shared open behavior for tree + recent rows: shift-click pins, image/pdf go
+ *  to the plot panel (server-side deduped), everything else opens as a dataset. */
+function useOpenEntry() {
   const pin = usePinHandler();
   const { setDrawer } = useUrlSync();
+  return useCallback(
+    (e: MouseEvent, entry: DatasetEntry): void => {
+      if (pin(e, { kind: "dataset", path: entry.path })) return;
+      if (entry.kind === "image" || entry.kind === "pdf") {
+        api.addPlot({ kind: entry.kind, source_path: entry.path, title: entry.name });
+        setDrawer("plots");
+        return;
+      }
+      api.openDataset(entry.path);
+    },
+    [pin, setDrawer],
+  );
+}
+
+function FileRow({ entry, depth, active, onContext }: { entry: DatasetEntry; depth: number; active: boolean; onContext: FileContextHandler }) {
+  const Icon = iconFor(entry.kind);
+  const open = useOpenEntry();
   const isPlot = entry.kind === "image" || entry.kind === "pdf";
   return (
     <button
-      onClick={(e) => {
-        if (pin(e, { kind: "dataset", path: entry.path })) return;
-        if (isPlot) {
-          // Add (or focus, server-side dedupe) the tab and reveal the panel.
-          api.addPlot({
-            kind: entry.kind as "image" | "pdf",
-            source_path: entry.path,
-            title: entry.name,
-          });
-          setDrawer("plots");
-          return;
-        }
-        api.openDataset(entry.path);
-      }}
+      onClick={(e) => open(e, entry)}
       onContextMenu={(e) => {
         e.preventDefault();
         onContext({ x: e.clientX, y: e.clientY }, entry);
@@ -394,6 +473,35 @@ function FileRow({ entry, depth, active, onContext }: { entry: DatasetEntry; dep
       <Icon size={12} className="shrink-0 opacity-70" />
       <span className="truncate flex-1">{entry.name}</span>
       <span className="text-[10px] text-zinc-400 dark:text-zinc-600 ml-auto shrink-0">{fmtBytes(entry.size_bytes)}</span>
+    </button>
+  );
+}
+
+/** A row in the "recent" section: shows the file name + its parent dir so files
+ *  with the same basename in different folders stay distinguishable. */
+function RecentRow({ entry, active, onContext }: { entry: DatasetEntry; active: boolean; onContext: FileContextHandler }) {
+  const Icon = iconFor(entry.kind);
+  const open = useOpenEntry();
+  return (
+    <button
+      onClick={(e) => open(e, entry)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onContext({ x: e.clientX, y: e.clientY }, entry);
+      }}
+      title={`${entry.path} — shift+click to pin — right-click to copy path`}
+      className={cn(
+        "flex items-center gap-2 px-2 py-0.5 hover:bg-white dark:bg-zinc-900 w-full text-left",
+        active && "bg-emerald-900/40 text-emerald-300",
+      )}
+    >
+      <Icon size={12} className="shrink-0 opacity-70" />
+      <span className="truncate flex-1 min-w-0">
+        <span className="text-sm">{entry.name}</span>
+        {entry.parent && (
+          <span className="ml-1.5 text-[10px] text-zinc-400 dark:text-zinc-600">{entry.parent}</span>
+        )}
+      </span>
     </button>
   );
 }

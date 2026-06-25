@@ -156,6 +156,21 @@ aren't self-evident from the code.
   required so `useSyncExternalStore` doesn't loop on `Maximum update depth`.
   `hydrateFromServer()` runs once at app boot from `App.tsx`.
 
+- **Dataset tree: opened-files history drives two affordances.** `DatasetTree.tsx`
+  records every active `dataset_path` into the `tree.openedFiles` pref (front,
+  deduped, cap 100) via an effect — so tree clicks, URL deep-links, and
+  chat-spawned opens all count. That history feeds (a) the foldable **recent**
+  section (`RecentRow`, history ∩ current scan, most-recent-first, top 15) and
+  (b) the **only-opened** filter toggle (next to the markdown toggle) that
+  narrows the tree to opened files. The filter (`tree.onlyOpened`) and the
+  section's fold (`tree.recentOpen`) are prefs too — which means UI smokes leak
+  them across runs: a test that flips `onlyOpened`/`recentOpen` must reset them
+  in `finally`, and an expanded recent section duplicates file rows in the aside
+  (so `open_file` uses `.first`). Separately, the tree filter **auto-rescans**
+  (debounced `refetch`, once per distinct query) when the text matches nothing —
+  so pasting a path to a file created since the last scan finds it without a
+  manual refresh.
+
 - **Plot panel = persistent gallery.** `api/routes/plots.py` + `PlotPanel.tsx`.
   Image/PDF tabs are deduped server-side on `(kind, source_path)` so clicking
   the same file twice focuses the existing tab. Plotly tabs hold the figure
