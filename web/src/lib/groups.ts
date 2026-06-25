@@ -1,15 +1,15 @@
-// Group-by overlay. Fetches the buckets for the chosen column (over the current
-// filter/sort/shuffle), publishes them into the nav cursor so j/k step between
-// groups, and exposes a locator so the cycler UI can show "member m / M · group
-// g / G" for the current row. Purely a navigation overlay — it never changes
-// which rows are visible, only how you step through them.
+// Group-by data. Fetches the buckets for the chosen column (over the current
+// filter/sort/shuffle) and exposes a locator so the cycler UI can show
+// "member m / M · group g / G" for a given row. Read-only — publishing the
+// buckets into the nav cursor (for single-mode j/k between groups) is done once
+// in DatasetHeader, which is always mounted; doing it here would double-publish
+// from every caller and desync when GroupedFeed unmounts.
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import { useViewerState } from "./state";
 import { useUrlSync } from "./url";
-import { setNavGroups } from "./nav";
 import type { GroupBucket } from "./types";
 
 export interface GroupPos {
@@ -47,12 +47,6 @@ export function useGroups() {
   });
 
   const groups: GroupBucket[] | null = (groupBy && q.data?.groups) || null;
-
-  // Publish to the nav cursor (and tear down when grouping clears / unmounts).
-  useEffect(() => {
-    setNavGroups(groups ? groups.map((g) => g.indices) : null);
-    return () => setNavGroups(null);
-  }, [groups]);
 
   const locator = useMemo(() => {
     const m = new Map<number, GroupPos>();

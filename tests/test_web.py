@@ -90,21 +90,21 @@ def test_json_field_layout_shared_across_same_schema(page: Page, server: str):
     expect(main.get_by_text(re.compile("more field")).first).to_be_visible()
 
 
-def test_group_by_cycler_navigation(page: Page, server: str):
+def test_group_by_grouped_feed_cycler(page: Page, server: str):
     page.goto(server)
-    open_file(page, "chat.jsonl")
-    expect(page.get_by_text("question 0", exact=True)).to_be_visible()
-    # Group by the even/odd label → the cycler appears (row 0 is in group 1/2).
-    page.get_by_title(re.compile("group samples")).select_option("label")
-    expect(page.get_by_text(re.compile(r"grp 1/2"))).to_be_visible()
-    # "next in group" steps to the next same-label sample: even members are
-    # rows 0,2,4… so idx advances 0 → 2 (not 1).
-    page.get_by_title(re.compile(r"next in group")).click()
-    expect(page.locator("input[type=number]")).to_have_value("2")
-    # j jumps to the *next group* (odd) — its first member is row 1.
-    page.locator("body").press("j")
-    expect(page.locator("input[type=number]")).to_have_value("1")
-    expect(page.get_by_text(re.compile(r"grp 2/2"))).to_be_visible()
+    open_file(page, "records.jsonl")
+    main = page.get_by_role("main")
+    expect(main.get_by_text("response:", exact=True).first).to_be_visible()
+    # Group by the even/odd bucket → the feed collapses to one card per group.
+    page.get_by_title(re.compile("group samples")).select_option("bucket")
+    expect(main.get_by_text(re.compile(r"2 groups"))).to_be_visible()
+    # The first card (even bucket: rows 0,2,4) starts on row 0; its own cycler
+    # swaps the member in place → row 2, without touching the second card.
+    expect(main.get_by_text(re.compile(r"grp 1/2 · row 0"))).to_be_visible()
+    main.get_by_title(re.compile(r"next in group")).first.click()
+    expect(main.get_by_text(re.compile(r"grp 1/2 · row 2"))).to_be_visible()
+    # Second group's card is independent — still on its first member.
+    expect(main.get_by_text(re.compile(r"grp 2/2 · row 1"))).to_be_visible()
 
 
 def test_regex_filter_narrows_rows(page: Page, server: str):

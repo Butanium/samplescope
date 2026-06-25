@@ -75,6 +75,8 @@ def dataset_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
                         "rid": i,
                         "label": f"{label_prefix}-{i}",
                         "score": round(i * 0.1, 2),
+                        # 2-valued field so group-by has real buckets to cycle.
+                        "bucket": "even" if i % 2 == 0 else "odd",
                         "response": "A deliberately long free-text response field so the "
                         "schema sniffer routes this file to the json card view. " * 3,
                     }

@@ -7,9 +7,12 @@ import { useViewerState } from "../../lib/state";
 import { useUrlSync } from "../../lib/url";
 import { usePref } from "../../lib/prefs";
 import { useRowPage, usePublishNav } from "../../lib/rowPage";
+import { useGroups } from "../../lib/groups";
+import { nextMember, prevMember } from "../../lib/nav";
 import { cn } from "../../lib/utils";
 import CopyButton from "../CopyButton";
 import RawJsonToggle from "../RawJsonToggle";
+import { GroupedFeed, GroupCycler } from "../GroupedFeed";
 import { ValueNode, isPlainObject, type Json, type NodeCtx } from "./jsonCards";
 import {
   TopLevelObject,
@@ -108,6 +111,11 @@ function SingleMode() {
   const setAll = (openAll: boolean) => { setDefaultOpen(openAll); setGen((g) => g + 1); };
   const schemaKey = isPlainObject(data) ? fieldSchemaKey(Object.keys(data)) : null;
 
+  // Grouped single view: one group at a time. A cycler walks the members of the
+  // current row's group (via nav, which also drives [ ] / j-k); j/k step groups.
+  const groups = useGroups();
+  const pos = groups.groupBy ? groups.posOf(v.row_idx) : null;
+
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-800 text-xs">
@@ -119,6 +127,18 @@ function SingleMode() {
           <JsonModeToggle />
         </div>
       </div>
+      {pos && (
+        <GroupCycler
+          label={pos.value === null ? "∅ null" : pos.value === "" ? "∅ empty" : pos.value}
+          mi={pos.mi}
+          count={pos.memberCount}
+          groupIdx={pos.gi}
+          groupCount={groups.groupCount}
+          rowIdx={v.row_idx}
+          onPrev={() => { const t = prevMember(v.row_idx); if (t != null) api.goto(t); }}
+          onNext={() => { const t = nextMember(v.row_idx); if (t != null) api.goto(t); }}
+        />
+      )}
       <div className="flex-1 overflow-y-auto p-3">
         {!data ? (
           <div className="text-zinc-500 text-sm">loading…</div>
@@ -141,19 +161,53 @@ function SingleMode() {
   );
 }
 
-/** A scrollable feed of samples, each rendered as its own card stack. */
+/** One group member in the grouped feed: fetches the row by idx and renders
+ *  just the card body (the GroupCard supplies the value + cycler header). */
+function JsonMember({
+  idx, markdown, defaultOpen, gen,
+}: { idx: number; markdown: boolean; defaultOpen: boolean; gen: number }) {
+  const v = useViewerState();
+  const { data } = useQuery({
+    queryKey: ["row-json", v.dataset_path, idx],
+    queryFn: () => api.row(v.dataset_path!, idx),
+    enabled: !!v.dataset_path,
+  });
+  if (!data) return <div className="px-3 py-4 text-zinc-500 text-sm">loading…</div>;
+  const ctx: NodeCtx = { markdown, ctxRow: data, defaultOpen, gen };
+  const schemaKey = isPlainObject(data) ? fieldSchemaKey(Object.keys(data)) : null;
+  return (
+    <div className="px-2 py-2">
+      {isPlainObject(data) && schemaKey ? (
+        <>
+          <div className="mb-2 flex flex-wrap items-center gap-1.5 empty:hidden">
+            <FieldHeaderChips value={data} schemaKey={schemaKey} />
+          </div>
+          <TopLevelObject value={data} schemaKey={schemaKey} ctx={ctx} />
+        </>
+      ) : (
+        <ValueNode value={data} ctx={ctx} />
+      )}
+    </div>
+  );
+}
+
+/** A scrollable feed of samples, each rendered as its own card stack. When a
+ *  group-by column is active, the feed collapses to one card per group (each
+ *  with a member cycler) via `GroupedFeed`. */
 function ListMode() {
   const v = useViewerState();
+  const { url } = useUrlSync();
   const [markdown, setMarkdown] = usePref<boolean>("json.markdown", true);
   const [defaultOpen, setDefaultOpen] = useState(true);
   const [gen, setGen] = useState(0);
   const parentRef = useRef<HTMLDivElement>(null);
+  const grouped = !!url.groupBy;
 
-  const { data: page } = useRowPage("json-list", { limit: LIST_PAGE });
+  const { data: page } = useRowPage("json-list", { limit: LIST_PAGE, enabled: !grouped });
   const rows = page?.rows ?? [];
   const indices = page?.indices ?? [];
 
-  usePublishNav(indices);
+  usePublishNav(indices, !grouped);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -171,37 +225,49 @@ function ListMode() {
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-800 text-xs">
         <ExpandMdControls markdown={markdown} setMarkdown={setMarkdown} setAll={setAll} />
         <FieldLayoutReset schemaKey={schemaKey} />
-        <span className="ml-2 text-[11px] text-zinc-400 dark:text-zinc-600">
-          showing {rows.length} of {page?.total_filtered ?? 0}
-        </span>
+        {!grouped && (
+          <span className="ml-2 text-[11px] text-zinc-400 dark:text-zinc-600">
+            showing {rows.length} of {page?.total_filtered ?? 0}
+          </span>
+        )}
         <div className="ml-auto">
           <JsonModeToggle />
         </div>
       </div>
-      <div ref={parentRef} className="flex-1 overflow-y-auto">
-        <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-          {virtualizer.getVirtualItems().map((vi) => {
-            const r = rows[vi.index];
-            const idx = indices[vi.index];
-            return (
-              <div
-                key={vi.key}
-                ref={virtualizer.measureElement}
-                data-index={vi.index}
-                style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${vi.start}px)` }}
-              >
-                <RecordBlock
-                  row={r}
-                  idx={idx}
-                  active={idx === v.row_idx}
-                  onSelect={() => api.goto(idx)}
-                  ctx={{ markdown, ctxRow: r, defaultOpen, gen }}
-                />
-              </div>
-            );
-          })}
+      {grouped ? (
+        <div className="flex-1 min-h-0">
+          <GroupedFeed
+            renderMember={(idx) => (
+              <JsonMember idx={idx} markdown={markdown} defaultOpen={defaultOpen} gen={gen} />
+            )}
+          />
         </div>
-      </div>
+      ) : (
+        <div ref={parentRef} className="flex-1 overflow-y-auto">
+          <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+            {virtualizer.getVirtualItems().map((vi) => {
+              const r = rows[vi.index];
+              const idx = indices[vi.index];
+              return (
+                <div
+                  key={vi.key}
+                  ref={virtualizer.measureElement}
+                  data-index={vi.index}
+                  style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${vi.start}px)` }}
+                >
+                  <RecordBlock
+                    row={r}
+                    idx={idx}
+                    active={idx === v.row_idx}
+                    onSelect={() => api.goto(idx)}
+                    ctx={{ markdown, ctxRow: r, defaultOpen, gen }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

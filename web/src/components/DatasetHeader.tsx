@@ -2,17 +2,22 @@ import { useState, useEffect } from "react";
 import { api } from "../lib/api";
 import { useViewerState } from "../lib/state";
 import { useUrlSync } from "../lib/url";
-import { nextIdx, prevIdx, nextMember, prevMember } from "../lib/nav";
-import { useGroups, type GroupPos } from "../lib/groups";
+import { nextIdx, prevIdx, setNavGroups } from "../lib/nav";
+import { useGroups } from "../lib/groups";
 import { cn, copyToClipboard } from "../lib/utils";
-import { Shuffle, ChevronLeft, ChevronRight, X, Filter, ArrowUp, ArrowDown, Layers, AlertTriangle } from "lucide-react";
+import { Shuffle, ChevronLeft, ChevronRight, X, Filter, ArrowUp, ArrowDown, Layers } from "lucide-react";
 
 export default function DatasetHeader() {
   const v = useViewerState();
   const { url, setFilter, setGroupBy } = useUrlSync();
-  // Mounting this here keeps the grouping published to the nav cursor (so j/k
-  // step between groups) for the whole session, and feeds the cycler below.
+  // Always mounted, so it's the single place that publishes the grouping into
+  // the nav cursor (single-mode j/k between groups, [ ] within). The per-card
+  // cyclers in the grouped feed don't go through nav — they hold local state.
   const groups = useGroups();
+  useEffect(() => {
+    setNavGroups(groups.groups ? groups.groups.map((g) => g.indices) : null);
+    return () => setNavGroups(null);
+  }, [groups.groups]);
   const [textDraft, setTextDraft] = useState(url.filterText ?? "");
   const [columnDraft, setColumnDraft] = useState(url.filterColumn ?? "");
   const [isRegex, setIsRegex] = useState(url.filterIsRegex);
@@ -97,13 +102,6 @@ export default function DatasetHeader() {
         title={groups.groupBy ? "next group (j)" : "next (j)"}>
         <ChevronRight size={14} />
       </button>
-      {groups.groupBy && groups.groups && (
-        <Cycler
-          pos={groups.posOf(idx)}
-          groupCount={groups.groupCount}
-          truncated={groups.truncated}
-        />
-      )}
       <button
         onClick={() => api.shuffle()}
         className={cn(
@@ -248,80 +246,5 @@ function GroupControl({
         ))}
       </select>
     </div>
-  );
-}
-
-/** Amber "capped" pill: grouping was bounded (huge dataset), so some samples
- *  aren't bucketed — surfaced rather than silently navigating a partial set. */
-function TruncatedBadge() {
-  return (
-    <span
-      title="grouping is capped at 20,000 rows — samples past the cap aren't bucketed (narrow with a filter to see all)"
-      className="flex items-center gap-0.5 text-[10px] text-amber-600 dark:text-amber-400"
-    >
-      <AlertTriangle size={11} /> capped
-    </span>
-  );
-}
-
-/** The "cycler thing": walks the samples sharing the current group's value,
- *  in place. `‹ m / M ›` plus the group's value + group position. */
-function Cycler({
-  pos, groupCount, truncated,
-}: { pos: GroupPos | null; groupCount: number; truncated: boolean }) {
-  const v = useViewerState();
-  if (!pos) {
-    return (
-      <span className="flex items-center gap-1.5 text-[11px] text-zinc-400 dark:text-zinc-600">
-        <span className="italic">no group</span>
-        {truncated && <TruncatedBadge />}
-      </span>
-    );
-  }
-  const label = pos.value === null ? "∅ null" : pos.value === "" ? "∅ empty" : pos.value;
-  return (
-    <>
-    <div
-      className="flex items-center gap-1 rounded border border-emerald-500/50 bg-emerald-500/10 px-1 py-0.5"
-      title={`group "${label}" · sample ${pos.mi + 1} of ${pos.memberCount} · group ${pos.gi + 1} of ${groupCount}`}
-    >
-      <span className="max-w-[120px] truncate font-mono text-[11px] text-emerald-800 dark:text-emerald-300">
-        {label}
-      </span>
-      <button
-        onClick={() => { const t = prevMember(v.row_idx); if (t != null) api.goto(t); }}
-        disabled={pos.mi === 0}
-        className={cn(
-          "p-0.5 rounded",
-          pos.mi === 0
-            ? "text-zinc-300 dark:text-zinc-700 cursor-not-allowed"
-            : "hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300",
-        )}
-        title="prev in group ([)"
-      >
-        <ChevronLeft size={13} />
-      </button>
-      <span className="font-mono text-[11px] tabular-nums text-emerald-800 dark:text-emerald-300">
-        {pos.mi + 1}/{pos.memberCount}
-      </span>
-      <button
-        onClick={() => { const t = nextMember(v.row_idx); if (t != null) api.goto(t); }}
-        disabled={pos.mi >= pos.memberCount - 1}
-        className={cn(
-          "p-0.5 rounded",
-          pos.mi >= pos.memberCount - 1
-            ? "text-zinc-300 dark:text-zinc-700 cursor-not-allowed"
-            : "hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300",
-        )}
-        title="next in group (])"
-      >
-        <ChevronRight size={13} />
-      </button>
-      <span className="pl-0.5 text-[10px] text-emerald-700/70 dark:text-emerald-400/60 tabular-nums">
-        grp {pos.gi + 1}/{groupCount}
-      </span>
-    </div>
-    {truncated && <TruncatedBadge />}
-    </>
   );
 }
