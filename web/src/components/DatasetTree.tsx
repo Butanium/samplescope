@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useViewerState } from "../lib/state";
@@ -123,6 +123,27 @@ export default function DatasetTree() {
 
   const tree = useMemo(() => buildTree(filtered), [filtered]);
 
+  // Auto-rescan when the filter text matches nothing in the cached list: the
+  // user likely pasted a path to a file created since the last scan. Debounced,
+  // gated on the *text* hit (not the ignore/markdown-filtered result — a
+  // re-scan can't reveal a present-but-ignored file), and fired at most once
+  // per distinct query so a genuinely-absent path doesn't spin the backend.
+  const lastAutoRefetched = useRef<string | null>(null);
+  useEffect(() => {
+    const f = filter.trim().toLowerCase();
+    if (!f || !data || isFetching) return;
+    if (data.some((d) => d.path.toLowerCase().includes(f))) {
+      lastAutoRefetched.current = null; // matched → re-arm for a future miss
+      return;
+    }
+    if (lastAutoRefetched.current === f) return; // already rescanned for this, still nothing
+    const t = setTimeout(() => {
+      lastAutoRefetched.current = f;
+      refetch();
+    }, 350);
+    return () => clearTimeout(t);
+  }, [filter, data, isFetching, refetch]);
+
   // Server root, for resolving absolute paths in the right-click menu.
   const { data: health } = useQuery({ queryKey: ["health"], queryFn: api.health, staleTime: Infinity });
   const [menu, setMenu] = useState<FileMenu | null>(null);
@@ -175,6 +196,11 @@ export default function DatasetTree() {
       <div className="flex-1 overflow-y-auto px-1 py-2 text-sm">
         {isLoading && <div className="text-zinc-500 text-xs px-2">loading…</div>}
         {error && <div className="text-red-400 text-xs px-2">{String(error)}</div>}
+        {!isLoading && !error && filter.trim() && filtered.length === 0 && (
+          <div className="text-zinc-500 text-xs px-2 py-1">
+            {isFetching ? "rescanning…" : "no match"}
+          </div>
+        )}
         {!isLoading && !error && (
           <TreeNode node={tree} depth={0} activePath={v.dataset_path} isOpen={isOpen} toggle={toggle} onFileContext={onFileContext} />
         )}

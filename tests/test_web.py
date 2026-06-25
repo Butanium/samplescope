@@ -148,6 +148,23 @@ def test_json_feed_infinite_scroll(page: Page, server: str):
     expect(main.get_by_text(re.compile(r"showing 250 of 250"))).to_be_visible()
 
 
+def test_tree_filter_autorefreshes_for_new_file(page: Page, server: str, dataset_dir):
+    page.goto(server)
+    aside = page.get_by_role("complementary").first
+    # Wait for the initial scan so the new file is genuinely absent from the
+    # cached list (created *after* the tree loaded).
+    expect(aside.get_by_text("chat.jsonl", exact=True)).to_be_visible()
+    new = dataset_dir / "surprise_new.jsonl"
+    new.write_text('{"x": 1}\n')
+    try:
+        # Typing its name hits nothing in the stale list → the tree auto-rescans
+        # and the file appears, no manual refresh-button click.
+        aside.get_by_placeholder("filter…").fill("surprise_new")
+        expect(aside.get_by_text("surprise_new.jsonl", exact=True)).to_be_visible(timeout=10000)
+    finally:
+        new.unlink(missing_ok=True)
+
+
 def test_regex_filter_narrows_rows(page: Page, server: str):
     page.goto(server)
     open_file(page, "chat.jsonl")
