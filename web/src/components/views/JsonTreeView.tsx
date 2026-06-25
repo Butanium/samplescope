@@ -8,6 +8,8 @@ import {
   EyeOff,
   FoldVertical,
   GripVertical,
+  Pin,
+  PinOff,
   RotateCcw,
   UnfoldVertical,
 } from "lucide-react";
@@ -234,14 +236,17 @@ function Card({
 // ───────────────────────── top-level field layout ─────────────────────────
 //
 // The outermost object of each row gets special treatment the nested cards
-// don't: the user picks which top-level fields stay visible vs. fold away, and
-// drags to reorder them. Both the order and the hidden set are persisted per
-// dataset (a `usePref` key) so the choice applies to *every* sample in the file
-// and survives reloads. `order` is the global ordering of all known keys;
-// `hidden` is which of them fold into the "more fields" drawer.
+// don't: the user picks, per field, one of three states — body (the default
+// card stack), drawer (folded into "more fields"), or header (a compact chip
+// next to the row index) — and drags to reorder the body fields. All three are
+// persisted per dataset (a `usePref` key) so the choice applies to *every*
+// sample in the file and survives reloads. `order` is the global ordering of
+// all known keys; `hidden` / `header` are the keys diverted out of the body.
+// A key is in at most one of `hidden` / `header` (they're kept mutually
+// exclusive); everything else is a body field.
 
-type FieldLayout = { order: string[]; hidden: string[] };
-const EMPTY_LAYOUT: FieldLayout = { order: [], hidden: [] };
+type FieldLayout = { order: string[]; hidden: string[]; header: string[] };
+const EMPTY_LAYOUT: FieldLayout = { order: [], hidden: [], header: [] };
 
 /**
  * The persisted `order` only lists keys the user has touched. Fold in any keys
@@ -263,15 +268,43 @@ function normalizeOrder(order: string[], present: string[]): string[] {
   return known;
 }
 
-function useFieldLayout(datasetPath: string) {
-  const [layout, setLayout] = usePref<FieldLayout>(`json.fields:${datasetPath}`, EMPTY_LAYOUT);
-  const hiddenSet = new Set(layout.hidden);
+/**
+ * The layout is keyed by *schema*, not by file path: a stable hash of the
+ * sorted top-level field names. So arranging one `{prompt, response, score}`
+ * JSONL carries over to every other file with that same field set — sibling
+ * result dumps, reruns, the next experiment. Order-independent (sorted) and
+ * FNV-1a-hashed so the pref key stays short and path-safe.
+ */
+function fieldSchemaKey(keys: string[]): string {
+  const s = [...keys].sort().join(" ");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
+function useFieldLayout(schemaKey: string) {
+  const [layout, setLayout] = usePref<FieldLayout>(`json.fields:${schemaKey}`, EMPTY_LAYOUT);
+  // `?? []` keeps us tolerant of older two-field prefs that predate `header`.
+  const hiddenSet = new Set(layout.hidden ?? []);
+  const headerSet = new Set(layout.header ?? []);
+  const save = (next: Partial<FieldLayout>, present: string[]) =>
+    setLayout({
+      order: normalizeOrder(layout.order, present),
+      hidden: layout.hidden ?? [],
+      header: layout.header ?? [],
+      ...next,
+    });
 
   const partition = (present: string[]) => {
     const full = normalizeOrder(layout.order, present);
     return {
-      shown: full.filter((k) => !hiddenSet.has(k)),
-      hidden: full.filter((k) => hiddenSet.has(k)),
+      // header takes precedence, then hidden; the rest are body fields.
+      header: full.filter((k) => headerSet.has(k)),
+      hidden: full.filter((k) => hiddenSet.has(k) && !headerSet.has(k)),
+      shown: full.filter((k) => !hiddenSet.has(k) && !headerSet.has(k)),
     };
   };
 
@@ -281,20 +314,37 @@ function useFieldLayout(datasetPath: string) {
     let ti = arr.indexOf(targetKey);
     if (ti < 0) ti = arr.length;
     arr.splice(below ? ti + 1 : ti, 0, dragKey);
-    setLayout({ order: arr, hidden: layout.hidden });
+    save({ order: arr }, present);
   };
 
-  const toggleHidden = (present: string[], key: string) => {
-    const nextHidden = hiddenSet.has(key)
-      ? layout.hidden.filter((k) => k !== key)
-      : [...layout.hidden.filter((k) => k !== key), key];
-    // Persist the resolved order too, so a hide doesn't drop the ordering the
-    // user already arranged (and newly-present keys get pinned into `order`).
-    setLayout({ order: normalizeOrder(layout.order, present), hidden: nextHidden });
-  };
+  // Each toggle flips one bucket and clears the other, so a key is body XOR
+  // hidden XOR header. Persisting the resolved order too keeps the arrangement
+  // and pins newly-present keys into `order`.
+  const toggleHidden = (present: string[], key: string) =>
+    save(
+      hiddenSet.has(key)
+        ? { hidden: layout.hidden.filter((k) => k !== key) }
+        : {
+            hidden: [...(layout.hidden ?? []).filter((k) => k !== key), key],
+            header: (layout.header ?? []).filter((k) => k !== key),
+          },
+      present,
+    );
 
-  const isDefault = layout.order.length === 0 && layout.hidden.length === 0;
-  return { partition, reorder, toggleHidden, isDefault, reset: () => setLayout(EMPTY_LAYOUT) };
+  const toggleHeader = (present: string[], key: string) =>
+    save(
+      headerSet.has(key)
+        ? { header: layout.header.filter((k) => k !== key) }
+        : {
+            header: [...(layout.header ?? []).filter((k) => k !== key), key],
+            hidden: (layout.hidden ?? []).filter((k) => k !== key),
+          },
+      present,
+    );
+
+  const isDefault =
+    layout.order.length === 0 && (layout.hidden?.length ?? 0) === 0 && (layout.header?.length ?? 0) === 0;
+  return { partition, reorder, toggleHidden, toggleHeader, isDefault, reset: () => setLayout(EMPTY_LAYOUT) };
 }
 
 /** Drag-and-drop coordination shared by the shown fields of one record. */
@@ -315,16 +365,19 @@ function inBottomHalf(e: DragEvent<HTMLDivElement>): boolean {
 
 /**
  * One top-level field: a drag handle + the usual scalar/card rendering + a
- * hide/show eye. `dnd` is null in the folded drawer (no reordering there).
+ * pin-to-header button and a hide/show eye. `dnd` is null in the folded drawer
+ * (no reordering there); there the controls stay visible (you're already in a
+ * settings context), vs. hover-revealed in the body.
  */
 function TopLevelField({
-  fieldKey, value, ctx, hidden, onToggleHidden, dnd,
+  fieldKey, value, ctx, hidden, onToggleHidden, onToggleHeader, dnd,
 }: {
   fieldKey: string;
   value: Json;
   ctx: NodeCtx;
   hidden: boolean;
   onToggleHidden: () => void;
+  onToggleHeader: () => void;
   dnd: Dnd | null;
 }) {
   // Native DnD drags whatever element under the pointer is `draggable`. We only
@@ -385,29 +438,89 @@ function TopLevelField({
           <ScalarField name={fieldKey} value={value} ctx={ctx} />
         )}
       </div>
-      <button
-        type="button"
-        title={hidden ? "show this field" : "hide — fold into ‘more fields’"}
-        onClick={onToggleHidden}
+      <div
         className={cn(
-          "shrink-0 self-start mt-1 rounded-sm p-0.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60 transition-opacity",
+          "shrink-0 self-start mt-1 flex items-center gap-0.5 transition-opacity",
           !hidden && "opacity-0 group-hover/rec:opacity-100",
         )}
       >
-        {hidden ? <Eye size={13} /> : <EyeOff size={13} />}
-      </button>
+        <button
+          type="button"
+          title="pin to the header — shown next to the row index"
+          onClick={onToggleHeader}
+          className="rounded-sm p-0.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
+        >
+          <Pin size={13} />
+        </button>
+        <button
+          type="button"
+          title={hidden ? "show this field" : "hide — fold into ‘more fields’"}
+          onClick={onToggleHidden}
+          className="rounded-sm p-0.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
+        >
+          {hidden ? <Eye size={13} /> : <EyeOff size={13} />}
+        </button>
+      </div>
     </div>
+  );
+}
+
+/** Compact one-line rendering of a value for a header chip. */
+function compactValue(v: Json): string {
+  if (v === null || v === undefined) return "null";
+  if (typeof v === "string") return v === "" ? "(empty)" : v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (Array.isArray(v)) return `[${v.length}]`;
+  return `{${Object.keys(v as object).length}}`;
+}
+
+/**
+ * The header-pinned fields, rendered as compact `key value` chips. Lives next
+ * to the row index (scroll feed) or in a strip atop the cards (single view).
+ * Each chip's hover reveals an unpin button that returns it to the body.
+ */
+function FieldHeaderChips({
+  value, schemaKey,
+}: {
+  value: Record<string, Json>;
+  schemaKey: string;
+}) {
+  const present = Object.keys(value);
+  const { partition, toggleHeader } = useFieldLayout(schemaKey);
+  const { header } = partition(present);
+  return (
+    <>
+      {header.map((k) => (
+        <span
+          key={k}
+          title={`${k}: ${compactValue(value[k])}`}
+          className="group/chip inline-flex max-w-[18rem] items-center gap-1 rounded-full border border-zinc-200 dark:border-zinc-700 bg-zinc-100/80 dark:bg-zinc-800/60 px-2 py-0.5 text-[11px]"
+        >
+          <span className="shrink-0 text-zinc-500 dark:text-zinc-400">{k}</span>
+          <span className="truncate font-medium text-zinc-700 dark:text-zinc-200">{compactValue(value[k])}</span>
+          <button
+            type="button"
+            title="unpin from header"
+            onClick={(e) => { e.stopPropagation(); toggleHeader(present, k); }}
+            className="shrink-0 opacity-0 group-hover/chip:opacity-100 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+          >
+            <PinOff size={11} />
+          </button>
+        </span>
+      ))}
+    </>
   );
 }
 
 /** The folded-by-default drawer of hidden top-level fields. */
 function HiddenSection({
-  keys, value, ctx, onToggleHidden,
+  keys, value, ctx, onToggleHidden, onToggleHeader,
 }: {
   keys: string[];
   value: Record<string, Json>;
   ctx: NodeCtx;
   onToggleHidden: (k: string) => void;
+  onToggleHeader: (k: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -441,6 +554,7 @@ function HiddenSection({
               ctx={ctx}
               hidden
               onToggleHidden={() => onToggleHidden(k)}
+              onToggleHeader={() => onToggleHeader(k)}
               dnd={null}
             />
           ))}
@@ -452,18 +566,19 @@ function HiddenSection({
 
 /**
  * Renders a row's outermost object with the user's field layout: ordered,
- * draggable visible fields on top, the rest folded into `HiddenSection`.
- * `group/rec` scopes the hover that reveals each field's hide eye.
+ * draggable visible fields on top, the rest folded into `HiddenSection`
+ * (header-pinned fields render separately, via `FieldHeaderChips`).
+ * `group/rec` scopes the hover that reveals each field's controls.
  */
 function TopLevelObject({
-  value, datasetPath, ctx,
+  value, schemaKey, ctx,
 }: {
   value: Record<string, Json>;
-  datasetPath: string;
+  schemaKey: string;
   ctx: NodeCtx;
 }) {
   const present = Object.keys(value);
-  const { partition, reorder, toggleHidden } = useFieldLayout(datasetPath);
+  const { partition, reorder, toggleHidden, toggleHeader } = useFieldLayout(schemaKey);
   const { shown, hidden } = partition(present);
 
   // `dragKey` state drives the drag visuals; `dragKeyRef` carries the source key
@@ -496,6 +611,7 @@ function TopLevelObject({
           ctx={ctx}
           hidden={false}
           onToggleHidden={() => toggleHidden(present, k)}
+          onToggleHeader={() => toggleHeader(present, k)}
           dnd={dnd}
         />
       ))}
@@ -505,6 +621,7 @@ function TopLevelObject({
           value={value}
           ctx={ctx}
           onToggleHidden={(k) => toggleHidden(present, k)}
+          onToggleHeader={(k) => toggleHeader(present, k)}
         />
       )}
     </div>
@@ -512,15 +629,15 @@ function TopLevelObject({
 }
 
 /** Toolbar control: clear a customized field layout back to natural order. */
-function FieldLayoutReset({ datasetPath }: { datasetPath: string }) {
-  const { isDefault, reset } = useFieldLayout(datasetPath);
-  if (isDefault) return null;
+function FieldLayoutReset({ schemaKey }: { schemaKey: string | null }) {
+  const { isDefault, reset } = useFieldLayout(schemaKey ?? "");
+  if (!schemaKey || isDefault) return null;
   return (
     <>
       <span className="mx-1 text-zinc-300 dark:text-zinc-700">·</span>
       <button
         onClick={reset}
-        title="reset field order & visibility for this dataset"
+        title="reset field order, header pins & visibility for this schema"
         className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
       >
         <RotateCcw size={12} /> fields
@@ -617,12 +734,13 @@ function SingleMode() {
   usePublishNav(navPage?.indices, navActive);
 
   const setAll = (openAll: boolean) => { setDefaultOpen(openAll); setGen((g) => g + 1); };
+  const schemaKey = isPlainObject(data) ? fieldSchemaKey(Object.keys(data)) : null;
 
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-800 text-xs">
         <ExpandMdControls markdown={markdown} setMarkdown={setMarkdown} setAll={setAll} />
-        {v.dataset_path && <FieldLayoutReset datasetPath={v.dataset_path} />}
+        <FieldLayoutReset schemaKey={schemaKey} />
         <div className="ml-auto flex items-center gap-1.5">
           {data && <CopyButton variant="json" value={() => JSON.stringify(data, null, 2)} title="copy the whole row as JSON" />}
           <RawJsonToggle value={raw} onChange={setRaw} title={raw ? "show card view" : "show raw JSON"} />
@@ -636,8 +754,13 @@ function SingleMode() {
           <pre className="text-xs font-mono bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-3 rounded whitespace-pre-wrap">
             {JSON.stringify(data, null, 2)}
           </pre>
-        ) : isPlainObject(data) && v.dataset_path ? (
-          <TopLevelObject value={data} datasetPath={v.dataset_path} ctx={{ markdown, ctxRow: data, defaultOpen, gen }} />
+        ) : isPlainObject(data) && schemaKey ? (
+          <>
+            <div className="mb-3 flex flex-wrap items-center gap-1.5 empty:hidden">
+              <FieldHeaderChips value={data} schemaKey={schemaKey} />
+            </div>
+            <TopLevelObject value={data} schemaKey={schemaKey} ctx={{ markdown, ctxRow: data, defaultOpen, gen }} />
+          </>
         ) : (
           <ValueNode value={data} ctx={{ markdown, ctxRow: data, defaultOpen, gen }} />
         )}
@@ -669,12 +792,13 @@ function ListMode() {
   });
 
   const setAll = (openAll: boolean) => { setDefaultOpen(openAll); setGen((g) => g + 1); };
+  const schemaKey = isPlainObject(rows[0]) ? fieldSchemaKey(Object.keys(rows[0])) : null;
 
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-800 text-xs">
         <ExpandMdControls markdown={markdown} setMarkdown={setMarkdown} setAll={setAll} />
-        {v.dataset_path && <FieldLayoutReset datasetPath={v.dataset_path} />}
+        <FieldLayoutReset schemaKey={schemaKey} />
         <span className="ml-2 text-[11px] text-zinc-400 dark:text-zinc-600">
           showing {rows.length} of {page?.total_filtered ?? 0}
         </span>
@@ -699,7 +823,6 @@ function ListMode() {
                   idx={idx}
                   active={idx === v.row_idx}
                   onSelect={() => api.goto(idx)}
-                  datasetPath={v.dataset_path}
                   ctx={{ markdown, ctxRow: r, defaultOpen, gen }}
                 />
               </div>
@@ -713,15 +836,15 @@ function ListMode() {
 
 /** One sample in the scroll feed: an index caption over its card stack. */
 function RecordBlock({
-  row, idx, active, onSelect, ctx, datasetPath,
+  row, idx, active, onSelect, ctx,
 }: {
   row: Json;
   idx: number;
   active: boolean;
   onSelect: () => void;
   ctx: NodeCtx;
-  datasetPath: string | null;
 }) {
+  const schemaKey = isPlainObject(row) ? fieldSchemaKey(Object.keys(row)) : null;
   return (
     <article
       onClick={onSelect}
@@ -730,16 +853,17 @@ function RecordBlock({
         active && "bg-emerald-50/40 dark:bg-emerald-500/[0.04]",
       )}
     >
-      <header className="flex items-center mb-2 text-[11px] font-mono">
+      <header className="flex flex-wrap items-center gap-1.5 mb-2 text-[11px] font-mono">
         <span className={cn("tracking-wider", active ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-500")}>
           row {idx}
         </span>
+        {isPlainObject(row) && schemaKey && <FieldHeaderChips value={row} schemaKey={schemaKey} />}
         <div className="ml-auto" onClick={(e) => e.stopPropagation()}>
           <CopyButton variant="json" value={() => JSON.stringify(row, null, 2)} title="copy row JSON" />
         </div>
       </header>
-      {isPlainObject(row) && datasetPath ? (
-        <TopLevelObject value={row} datasetPath={datasetPath} ctx={ctx} />
+      {isPlainObject(row) && schemaKey ? (
+        <TopLevelObject value={row} schemaKey={schemaKey} ctx={ctx} />
       ) : (
         <ValueNode value={row} ctx={ctx} />
       )}

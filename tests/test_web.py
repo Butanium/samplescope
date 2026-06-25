@@ -51,8 +51,35 @@ def test_json_field_hide_folds_and_persists(page: Page, server: str):
     # Hide the first field → it folds into a "1 more field" drawer.
     main.get_by_title(re.compile("^hide")).first.click()
     expect(main.get_by_text(re.compile("more field")).first).to_be_visible()
-    # The choice is a per-dataset pref: it survives a reload.
+    # The choice is a schema-keyed pref: it survives a reload.
     page.reload()
+    expect(main.get_by_text(re.compile("more field")).first).to_be_visible()
+
+
+def test_json_field_pin_to_header(page: Page, server: str):
+    page.goto(server)
+    page.get_by_text("records.jsonl", exact=True).click()
+    main = page.get_by_role("main")
+    expect(main.get_by_text("response:", exact=True).first).to_be_visible()
+    # Pin the first field into the header → an unpin affordance now exists.
+    expect(main.get_by_title(re.compile("^unpin"))).to_have_count(0)
+    main.get_by_title(re.compile("^pin to")).first.click()
+    expect(main.get_by_title(re.compile("^unpin")).first).to_be_visible()
+    page.reload()
+    expect(main.get_by_title(re.compile("^unpin")).first).to_be_visible()
+
+
+def test_json_field_layout_shared_across_same_schema(page: Page, server: str):
+    page.goto(server)
+    # Arrange records.jsonl: hide a field.
+    page.get_by_text("records.jsonl", exact=True).click()
+    main = page.get_by_role("main")
+    expect(main.get_by_text("response:", exact=True).first).to_be_visible()
+    main.get_by_title(re.compile("^hide")).first.click()
+    expect(main.get_by_text(re.compile("more field")).first).to_be_visible()
+    # records2.jsonl has the SAME field set → it inherits the layout, no edits.
+    page.get_by_text("records2.jsonl", exact=True).click()
+    expect(main.get_by_text("other-0").first).to_be_visible()  # records2's data loaded
     expect(main.get_by_text(re.compile("more field")).first).to_be_visible()
 
 
