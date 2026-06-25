@@ -107,20 +107,39 @@ aren't self-evident from the code.
   and vice versa in the BUS publish; the SQL query in `_build_rows_query`
   picks one ORDER BY branch.
 
-- **Group-by is a navigation overlay, not a different row set.** Pick a column
-  (`group=<col>` in the URL, client-only state — never hits ViewerState/SSE) and
-  `GET /api/datasets/groups` buckets the *visible* rows (it reuses
-  `_build_rows_query`, so it composes with filter/sort/shuffle/SQL-selection);
-  groups are ordered by first appearance, members keep visible order. `useGroups`
-  (`web/src/lib/groups.ts`) publishes the buckets into the nav cursor via
-  `setNavGroups`, which makes `nextIdx`/`prevIdx` (so j/k + header arrows) step
-  *between groups* (landing on each group's first member); `nextMember`/
-  `prevMember` (the header `Cycler` + `]`/`[`) walk within one group. Grouping
-  takes precedence over the flat `setNavIndices` list while active. The view
-  itself is untouched — it just renders whatever `row_idx` the overlay lands on,
-  so this works for every sample view (chat/json/eval), not just jsonl. The
-  endpoint's `__pos` (a ROW_NUMBER over the inner ordered query) pins visible
-  order through the grouping projection — a bare subquery wouldn't guarantee it.
+- **Group-by collapses the feed to one card per group (and is also a nav
+  overlay).** Pick a column (`group=<col>` in the URL, client-only state — never
+  hits ViewerState/SSE) and `GET /api/datasets/groups` buckets the *visible* rows
+  (it reuses `_build_rows_query`, so it composes with filter/sort/shuffle/
+  SQL-selection); groups are ordered by first appearance, members keep visible
+  order; capped at 20k rows (`truncated` flag). In **list/scroll mode** the
+  sample feed switches to `GroupedFeed` (`web/src/components/GroupedFeed.tsx`):
+  one virtualized card per group, each with a `GroupCycler` header that swaps
+  which member-sample renders *in place*. The per-card member index is local
+  state keyed by the group value, so the cyclers are independent and survive a
+  card scrolling out of view. `GroupedFeed` is **view-agnostic** — each feed view
+  passes a `renderMember(idx)` render prop that fetches + renders one sample its
+  own way (`JsonMember`/`ChatMember` fetch via `api.row`; eval looks the sample
+  up in its already-fetched `indexPage`), so the grouping/cycler plumbing lives
+  in one file instead of being tripled across views. In **single mode** grouping
+  stays a pure nav overlay: `DatasetHeader` (always mounted) is the single place
+  that publishes the buckets into the nav cursor via `setNavGroups`, making
+  `nextIdx`/`prevIdx` (j/k + header arrows) step *between groups* and
+  `nextMember`/`prevMember` (the `GroupCycler` rendered in each view's
+  `SingleMode` + `]`/`[`) walk within one group. `lib/groups.ts` is read-only —
+  it used to publish too, which double-published and desynced when `GroupedFeed`
+  unmounted. The endpoint's `__pos` (a ROW_NUMBER over the inner ordered query)
+  pins visible order through the grouping projection — a bare subquery wouldn't
+  guarantee it.
+
+- **Ungrouped feeds paginate via infinite scroll.** The json/chat list feeds use
+  `useRowFeed` (`web/src/lib/rowPage.ts`) — a `useInfiniteQuery` over `api.rows`
+  offset-pages of 100 — and an effect watching the virtualizer's last visible
+  item calls `fetchNextPage` as you scroll near the bottom; `usePublishNav`
+  re-publishes the growing index list so j/k stays in visible order. Grouped mode
+  disables that query (`enabled: !grouped`) and renders `GroupedFeed` instead.
+  Eval's left pane is the exception: a single `EVAL_LIST_LIMIT=5000` fetch (its
+  two-pane browser isn't a virtualized growing feed), left as-is.
 
 - **`.eval` logs route through the JSONL pipeline via cache materialization.**
   `query_path(p)` in `api/routes/datasets.py` swaps any `.eval` for a cached

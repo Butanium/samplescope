@@ -88,6 +88,23 @@ def dataset_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     (d / "records.jsonl").write_text(_records("item"))
     (d / "records2.jsonl").write_text(_records("other"))
+    # A >100-row json-card file so the infinite-scroll feed must paginate (the
+    # frontend pulls 100 rows/page → this forces ≥3 pages).
+    (d / "big.jsonl").write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "rid": i,
+                    "label": f"big-{i}",
+                    # >200 chars so _has_long_text routes this to the json card
+                    # view (the infinite-scroll feed under test), not the table.
+                    "response": "Long free-text so the json card view is selected. " * 6,
+                }
+            )
+            for i in range(250)
+        )
+        + "\n"
+    )
     (d / "notes.md").write_text("# Title\n\nSome **markdown** prose.\n")
     return d
 

@@ -1,8 +1,11 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { api } from "../../lib/api";
 import { useViewerState } from "../../lib/state";
-import { useRowPage } from "../../lib/rowPage";
+import { useRowPage, useRowFeed, usePublishNav } from "../../lib/rowPage";
+import { useGroups } from "../../lib/groups";
+import { nextMember, prevMember } from "../../lib/nav";
 import { useUrlSync } from "../../lib/url";
 import { usePref } from "../../lib/prefs";
 import { cn } from "../../lib/utils";
@@ -12,6 +15,7 @@ import PreOrMarkdown from "../PreOrMarkdown";
 import Collapsible from "../Collapsible";
 import CopyButton from "../CopyButton";
 import MultiSelectChips from "../ui/MultiSelectChips";
+import { GroupedFeed, GroupCycler } from "../GroupedFeed";
 import { ChevronsDown, ChevronsRight, Pin } from "lucide-react";
 import { usePinHandler } from "../../lib/pin";
 import { useRawOverride } from "../../lib/rawOverrides";
@@ -270,16 +274,43 @@ function RowBlock({
   );
 }
 
+/** One group member in the grouped feed: fetches the row by idx and renders it
+ *  as a full RowBlock (the GroupCard supplies the group value + cycler header). */
+function ChatMember({ idx, datasetPath, defaultRaw, pinnedFields }: {
+  idx: number; datasetPath: string; defaultRaw: boolean; pinnedFields: string[];
+}) {
+  const v = useViewerState();
+  const { data: row } = useQuery({
+    queryKey: ["row-chat", datasetPath, idx],
+    queryFn: () => api.row(datasetPath, idx),
+    enabled: !!datasetPath,
+  });
+  if (!row) return <div className="px-6 py-4 text-zinc-500 text-sm">loading…</div>;
+  return (
+    <RowBlock
+      row={row}
+      idx={idx}
+      datasetPath={datasetPath}
+      active={idx === v.row_idx}
+      onSelect={() => api.goto(idx)}
+      defaultRaw={defaultRaw}
+      pinnedFields={pinnedFields}
+    />
+  );
+}
+
 function ListMode({ datasetPath, defaultRaw, pinnedFields }: {
   datasetPath: string; defaultRaw: boolean; pinnedFields: string[];
 }) {
   const v = useViewerState();
+  const { url } = useUrlSync();
+  const grouped = !!url.groupBy;
   const parentRef = useRef<HTMLDivElement>(null);
 
-  const { data: page } = useRowPage("chat-list", { limit: PAGE });
+  const { rows, indices, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    useRowFeed("chat-list", PAGE, !grouped);
 
-  const rows = page?.rows ?? [];
-  const indices = page?.indices ?? [];
+  usePublishNav(indices, !grouped);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -289,12 +320,31 @@ function ListMode({ datasetPath, defaultRaw, pinnedFields }: {
     measureElement: (el) => el.getBoundingClientRect().height,
   });
 
+  // Infinite scroll: pull the next page once the last rendered row is in view.
+  const virtualItems = virtualizer.getVirtualItems();
+  useEffect(() => {
+    const last = virtualItems[virtualItems.length - 1];
+    if (last && last.index >= rows.length - 1 && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [virtualItems, rows.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  if (grouped) {
+    return (
+      <GroupedFeed
+        renderMember={(idx) => (
+          <ChatMember idx={idx} datasetPath={datasetPath} defaultRaw={defaultRaw} pinnedFields={pinnedFields} />
+        )}
+      />
+    );
+  }
+
   return (
     <div ref={parentRef} className="h-full overflow-y-auto">
       <div
         style={{ height: virtualizer.getTotalSize(), position: "relative" }}
       >
-        {virtualizer.getVirtualItems().map((vi) => {
+        {virtualItems.map((vi) => {
           const r = rows[vi.index];
           const idx = indices[vi.index];
           return (
@@ -339,12 +389,29 @@ function SingleMode({ datasetPath, defaultRaw, pinnedFields }: {
   const realIdx = page?.indices[0];
   const messages = useMemo(() => getMessages(row), [row]);
 
+  // Grouped single view: a cycler walks the members of the current row's group
+  // (via nav, which DatasetHeader publishes); j/k step between groups.
+  const groups = useGroups();
+  const pos = groups.groupBy ? groups.posOf(v.row_idx) : null;
+
   if (!row) {
     return <div className="p-12 text-zinc-500 text-sm">loading row…</div>;
   }
 
   return (
     <div className="h-full overflow-y-auto">
+      {pos && (
+        <GroupCycler
+          label={pos.value === null ? "∅ null" : pos.value === "" ? "∅ empty" : pos.value}
+          mi={pos.mi}
+          count={pos.memberCount}
+          groupIdx={pos.gi}
+          groupCount={groups.groupCount}
+          rowIdx={v.row_idx}
+          onPrev={() => { const t = prevMember(v.row_idx); if (t != null) api.goto(t); }}
+          onNext={() => { const t = nextMember(v.row_idx); if (t != null) api.goto(t); }}
+        />
+      )}
       <header className="flex items-center gap-3 px-6 pt-5 pb-3 text-[11px] font-mono border-b border-zinc-200/60 dark:border-zinc-800/70">
         <span className="tabular-nums tracking-wider text-emerald-600 dark:text-emerald-400">
           row {v.row_idx}
@@ -504,14 +571,18 @@ export default function ChatRowView() {
   );
 }
 
-/** Inline counter for the toolbar — shares the list page query's cache via the
- *  identical `useRowPage("chat-list", …)` key, so TanStack dedupes to one fetch. */
+/** Inline counter for the toolbar — shares the list feed query's cache via the
+ *  identical `useRowFeed("chat-list", …)` key, so TanStack dedupes to one fetch
+ *  and the count grows as infinite scroll pulls more pages. Hidden while grouped
+ *  (the grouped feed shows its own "N groups" header). */
 function ListCount() {
-  const { data } = useRowPage("chat-list", { limit: PAGE });
-  const page = data as { rows: any[]; total_filtered: number } | undefined;
+  const { url } = useUrlSync();
+  const grouped = !!url.groupBy;
+  const { rows, totalFiltered } = useRowFeed("chat-list", PAGE, !grouped);
+  if (grouped) return null;
   return (
     <span className="ml-auto tabular-nums">
-      {page ? `${page.rows.length} of ${page.total_filtered}` : "…"}
+      {totalFiltered ? `${rows.length} of ${totalFiltered}` : "…"}
     </span>
   );
 }

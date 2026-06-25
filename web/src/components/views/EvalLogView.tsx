@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../lib/api";
 import { useViewerState } from "../../lib/state";
+import { useUrlSync } from "../../lib/url";
 import { truncate, cn } from "../../lib/utils";
 import { usePinHandler } from "../../lib/pin";
 import { useRowPage, usePublishNav } from "../../lib/rowPage";
+import { GroupedFeed } from "../GroupedFeed";
 import RawJsonToggle from "../RawJsonToggle";
 
 // Eval logs are small enough in this codebase that a single fetch covers the
@@ -28,9 +30,19 @@ export default function EvalLogView() {
   const openIdx = v.row_idx;
   const pin = usePinHandler();
   const listRef = useRef<HTMLDivElement>(null);
+  const { url } = useUrlSync();
+  const grouped = !!url.groupBy;
 
   // Step arrow / j / k through the visible order (matters under shuffle + filter).
-  usePublishNav(indexPage?.indices);
+  usePublishNav(indexPage?.indices, !grouped);
+
+  // idx → sample lookup so the grouped feed can render a member card without a
+  // second round-trip (the materialized projection already holds every sample).
+  const byIdx = useMemo(() => {
+    const m = new Map<number, any>();
+    indexPage?.indices.forEach((sIdx, pos) => m.set(sIdx, indexPage.rows[pos]));
+    return m;
+  }, [indexPage]);
 
   // If the current row isn't in the visible set (just opened a filter that
   // excludes it, or fell off the end of a paginated view), snap to the first
@@ -52,6 +64,26 @@ export default function EvalLogView() {
   }, [openIdx]);
 
   if (!header || !indexPage) return <div className="p-6 text-zinc-500 text-sm">loading…</div>;
+
+  // Grouped: collapse to one card per group, each cycling its member samples in
+  // place (same overlay as the json/chat feeds). The two-pane browser doesn't
+  // map onto "1 row = 1 group", so grouping replaces it with the shared feed.
+  if (grouped) {
+    return (
+      <div className="h-full">
+        <GroupedFeed
+          renderMember={(idx) => {
+            const s = byIdx.get(idx);
+            return s ? (
+              <SampleCard s={s} idx={idx} />
+            ) : (
+              <div className="px-4 py-4 text-zinc-500 text-sm">sample #{idx} not loaded</div>
+            );
+          }}
+        />
+      </div>
+    );
+  }
 
   const currentListPos = indexPage.indices.indexOf(openIdx);
   const currentSample = currentListPos >= 0 ? (indexPage.rows[currentListPos] as any) : null;

@@ -107,6 +107,47 @@ def test_group_by_grouped_feed_cycler(page: Page, server: str):
     expect(main.get_by_text(re.compile(r"grp 2/2 · row 1"))).to_be_visible()
 
 
+def test_group_by_chat_grouped_feed(page: Page, server: str):
+    page.goto(server)
+    open_file(page, "chat.jsonl")
+    main = page.get_by_role("main")
+    expect(page.get_by_text("question 0", exact=True)).to_be_visible()
+    # Group the chat feed by the even/odd label → one card per group, each a
+    # chat transcript with its own cycler (the same overlay the json view uses,
+    # proving GroupedFeed is view-agnostic).
+    page.get_by_title(re.compile("group samples")).select_option("label")
+    expect(main.get_by_text(re.compile(r"2 groups"))).to_be_visible()
+    # First card (even rows 0,2,…) starts on row 0 → its transcript shows q0.
+    expect(main.get_by_text(re.compile(r"grp 1/2 · row 0"))).to_be_visible()
+    expect(main.get_by_text("question 0", exact=True)).to_be_visible()
+    # Cycle that card in place → row 2 (q2), without touching the odd card.
+    main.get_by_title(re.compile(r"next in group")).first.click()
+    expect(main.get_by_text(re.compile(r"grp 1/2 · row 2"))).to_be_visible()
+    expect(main.get_by_text("question 2", exact=True)).to_be_visible()
+    expect(main.get_by_text(re.compile(r"grp 2/2 · row 1"))).to_be_visible()
+
+
+def test_json_feed_infinite_scroll(page: Page, server: str):
+    page.goto(server)
+    open_file(page, "big.jsonl")
+    main = page.get_by_role("main")
+    # First page is 100 of 250 rows.
+    expect(main.get_by_text(re.compile(r"showing 100 of 250"))).to_be_visible()
+    # Scrolling the feed to the bottom pulls the next pages until all are loaded.
+    scroll_all = """() => {
+      document.querySelectorAll('div').forEach(e => {
+        if (e.scrollHeight > e.clientHeight && getComputedStyle(e).overflowY === 'auto')
+          e.scrollTop = e.scrollHeight;
+      });
+    }"""
+    for _ in range(8):
+        if "showing 250 of 250" in main.inner_text():
+            break
+        page.evaluate(scroll_all)
+        page.wait_for_timeout(300)
+    expect(main.get_by_text(re.compile(r"showing 250 of 250"))).to_be_visible()
+
+
 def test_regex_filter_narrows_rows(page: Page, server: str):
     page.goto(server)
     open_file(page, "chat.jsonl")

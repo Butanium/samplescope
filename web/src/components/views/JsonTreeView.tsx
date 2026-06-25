@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { FoldVertical, UnfoldVertical } from "lucide-react";
@@ -6,7 +6,7 @@ import { api } from "../../lib/api";
 import { useViewerState } from "../../lib/state";
 import { useUrlSync } from "../../lib/url";
 import { usePref } from "../../lib/prefs";
-import { useRowPage, usePublishNav } from "../../lib/rowPage";
+import { useRowPage, useRowFeed, usePublishNav } from "../../lib/rowPage";
 import { useGroups } from "../../lib/groups";
 import { nextMember, prevMember } from "../../lib/nav";
 import { cn } from "../../lib/utils";
@@ -203,9 +203,8 @@ function ListMode() {
   const parentRef = useRef<HTMLDivElement>(null);
   const grouped = !!url.groupBy;
 
-  const { data: page } = useRowPage("json-list", { limit: LIST_PAGE, enabled: !grouped });
-  const rows = page?.rows ?? [];
-  const indices = page?.indices ?? [];
+  const { rows, indices, totalFiltered, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    useRowFeed("json-list", LIST_PAGE, !grouped);
 
   usePublishNav(indices, !grouped);
 
@@ -217,6 +216,15 @@ function ListMode() {
     measureElement: (el) => el.getBoundingClientRect().height,
   });
 
+  // Infinite scroll: pull the next page once the last rendered card is in view.
+  const virtualItems = virtualizer.getVirtualItems();
+  useEffect(() => {
+    const last = virtualItems[virtualItems.length - 1];
+    if (last && last.index >= rows.length - 1 && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [virtualItems, rows.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
+
   const setAll = (openAll: boolean) => { setDefaultOpen(openAll); setGen((g) => g + 1); };
   const schemaKey = isPlainObject(rows[0]) ? fieldSchemaKey(Object.keys(rows[0])) : null;
 
@@ -227,7 +235,7 @@ function ListMode() {
         <FieldLayoutReset schemaKey={schemaKey} />
         {!grouped && (
           <span className="ml-2 text-[11px] text-zinc-400 dark:text-zinc-600">
-            showing {rows.length} of {page?.total_filtered ?? 0}
+            showing {rows.length} of {totalFiltered}
           </span>
         )}
         <div className="ml-auto">
@@ -245,7 +253,7 @@ function ListMode() {
       ) : (
         <div ref={parentRef} className="flex-1 overflow-y-auto">
           <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-            {virtualizer.getVirtualItems().map((vi) => {
+            {virtualItems.map((vi) => {
               const r = rows[vi.index];
               const idx = indices[vi.index];
               return (

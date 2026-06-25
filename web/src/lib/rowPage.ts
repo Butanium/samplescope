@@ -6,7 +6,7 @@
 // silently desyncs caches or breaks j/k navigation).
 
 import { useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import { useViewerState } from "./state";
 import { setNavIndices } from "./nav";
@@ -49,6 +49,61 @@ export function useRowPage(
       }),
     enabled: !!v.dataset_path && enabled,
   });
+}
+
+/**
+ * Infinite-scroll variant of `useRowPage`: pages of `pageSize` rows fetched on
+ * demand and concatenated, so a feed view loads more as the user scrolls toward
+ * the bottom instead of capping at one fixed window. Same ViewerState→args
+ * mapping as `useRowPage` (so filter/sort/shuffle compose), keyed identically
+ * minus the offset (the offset is the page cursor here). Returns the flattened
+ * rows + indices plus the `fetchNextPage`/`hasNextPage` knobs the virtualizer
+ * wires to its scroll position.
+ */
+export function useRowFeed(name: string, pageSize: number, enabled = true) {
+  const v = useViewerState();
+  const q = useInfiniteQuery({
+    queryKey: [
+      name,
+      "feed",
+      v.dataset_path,
+      v.shuffle_seed,
+      v.filter_regex,
+      v.filter_column,
+      v.sort_column,
+      v.sort_desc,
+      pageSize,
+    ],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      api.rows({
+        path: v.dataset_path!,
+        offset: pageParam,
+        limit: pageSize,
+        filter_regex: v.filter_regex,
+        filter_column: v.filter_column,
+        shuffle_seed: v.shuffle_seed ?? null,
+        sort_column: v.sort_column,
+        sort_desc: v.sort_desc,
+      }),
+    // Next cursor = how many rows we've loaded so far, until we've seen them all.
+    getNextPageParam: (_last, all) => {
+      const loaded = all.reduce((n, p) => n + p.rows.length, 0);
+      const total = all[0]?.total_filtered ?? 0;
+      return loaded < total ? loaded : undefined;
+    },
+    enabled: !!v.dataset_path && enabled,
+  });
+
+  const pages = q.data?.pages ?? [];
+  return {
+    rows: pages.flatMap((p) => p.rows),
+    indices: pages.flatMap((p) => p.indices),
+    totalFiltered: pages[0]?.total_filtered ?? 0,
+    fetchNextPage: q.fetchNextPage,
+    hasNextPage: q.hasNextPage,
+    isFetchingNextPage: q.isFetchingNextPage,
+  };
 }
 
 /**
