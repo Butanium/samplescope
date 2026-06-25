@@ -20,10 +20,17 @@ def _require_built_ui(server: str):
         pytest.skip("no built frontend (run `make build` first)")
 
 
+def open_file(page: Page, name: str) -> None:
+    """Click a file in the tree. Scoped to the tree aside (role=complementary)
+    because the header path display shows the *open* dataset's basename, which
+    collides with `get_by_text(name)` once that file is open."""
+    page.get_by_role("complementary").first.get_by_text(name, exact=True).click()
+
+
 def test_open_chat_dataset_and_navigate(page: Page, server: str):
     page.goto(server)
     # Dataset tree lists the files; click the chat dataset.
-    page.get_by_text("chat.jsonl", exact=True).click()
+    open_file(page, "chat.jsonl")
     # Chat view renders the first row's bubbles.
     expect(page.get_by_text("question 0", exact=True)).to_be_visible()
     expect(page.get_by_text("answer 0", exact=True)).to_be_visible()
@@ -34,7 +41,7 @@ def test_open_chat_dataset_and_navigate(page: Page, server: str):
 
 def test_open_csv_renders_table(page: Page, server: str):
     page.goto(server)
-    page.get_by_text("metrics.csv", exact=True).click()
+    open_file(page, "metrics.csv")
     # Table view shows the CSV's column headers. (`filter(visible=...)`:
     # the column names also appear in a hidden filter-column <option>.)
     expect(page.get_by_text("loss", exact=True).filter(visible=True)).to_be_visible()
@@ -43,7 +50,7 @@ def test_open_csv_renders_table(page: Page, server: str):
 
 def test_json_field_hide_folds_and_persists(page: Page, server: str):
     page.goto(server)
-    page.get_by_text("records.jsonl", exact=True).click()
+    open_file(page, "records.jsonl")
     main = page.get_by_role("main")
     # json card view renders each top-level field as a `key:` label; no drawer yet.
     expect(main.get_by_text("response:", exact=True).first).to_be_visible()
@@ -58,7 +65,7 @@ def test_json_field_hide_folds_and_persists(page: Page, server: str):
 
 def test_json_field_pin_to_header(page: Page, server: str):
     page.goto(server)
-    page.get_by_text("records.jsonl", exact=True).click()
+    open_file(page, "records.jsonl")
     main = page.get_by_role("main")
     expect(main.get_by_text("response:", exact=True).first).to_be_visible()
     # Pin the first field into the header → an unpin affordance now exists.
@@ -72,20 +79,20 @@ def test_json_field_pin_to_header(page: Page, server: str):
 def test_json_field_layout_shared_across_same_schema(page: Page, server: str):
     page.goto(server)
     # Arrange records.jsonl: hide a field.
-    page.get_by_text("records.jsonl", exact=True).click()
+    open_file(page, "records.jsonl")
     main = page.get_by_role("main")
     expect(main.get_by_text("response:", exact=True).first).to_be_visible()
     main.get_by_title(re.compile("^hide")).first.click()
     expect(main.get_by_text(re.compile("more field")).first).to_be_visible()
     # records2.jsonl has the SAME field set → it inherits the layout, no edits.
-    page.get_by_text("records2.jsonl", exact=True).click()
+    open_file(page, "records2.jsonl")
     expect(main.get_by_text("other-0").first).to_be_visible()  # records2's data loaded
     expect(main.get_by_text(re.compile("more field")).first).to_be_visible()
 
 
 def test_group_by_cycler_navigation(page: Page, server: str):
     page.goto(server)
-    page.get_by_text("chat.jsonl", exact=True).click()
+    open_file(page, "chat.jsonl")
     expect(page.get_by_text("question 0", exact=True)).to_be_visible()
     # Group by the even/odd label → the cycler appears (row 0 is in group 1/2).
     page.get_by_title(re.compile("group samples")).select_option("label")
@@ -102,7 +109,7 @@ def test_group_by_cycler_navigation(page: Page, server: str):
 
 def test_regex_filter_narrows_rows(page: Page, server: str):
     page.goto(server)
-    page.get_by_text("chat.jsonl", exact=True).click()
+    open_file(page, "chat.jsonl")
     expect(page.get_by_text("question 0", exact=True)).to_be_visible()
     # `/` focuses the regex filter input.
     page.keyboard.press("/")

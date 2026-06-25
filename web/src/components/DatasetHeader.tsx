@@ -214,6 +214,9 @@ function GroupControl({
   columns, groupBy, onChange,
 }: { columns: string[]; groupBy: string | null; onChange: (c: string | null) => void }) {
   const choices = columns.filter((c) => c !== "__idx");
+  // Chat-format rows expose synthetic keys for the first two turns' content, so
+  // you can bucket conversations by their opening user/assistant message.
+  const messageKeys = columns.includes("messages") ? ["message_1", "message_2"] : [];
   return (
     <div className="flex items-center gap-1 border-l border-zinc-200 dark:border-zinc-800 pl-2 ml-1">
       <Layers size={13} className={cn(groupBy ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-500")} />
@@ -227,6 +230,13 @@ function GroupControl({
         title="group samples by a column's value (navigation overlay)"
       >
         <option value="">group: —</option>
+        {messageKeys.length > 0 && (
+          <optgroup label="messages[].content">
+            {messageKeys.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </optgroup>
+        )}
         {choices.map((c) => (
           <option key={c} value={c}>{c}</option>
         ))}

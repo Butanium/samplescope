@@ -108,6 +108,24 @@ def test_group_by_unknown_column_is_400(server: str):
     assert r.status_code == 400
 
 
+def test_group_by_synthetic_message_keys(server: str):
+    """`message_1` / `message_2` extract messages[0]/[1].content for chat rows."""
+    path = _path_of(server, "chat.jsonl")
+    g1 = httpx.get(
+        f"{server}/api/datasets/groups", params={"path": path, "column": "message_1"}
+    ).json()
+    assert g1["groups"][0]["value"] == "question 0"
+    assert g1["groups"][0]["indices"] == [0]
+    g2 = httpx.get(
+        f"{server}/api/datasets/groups", params={"path": path, "column": "message_2"}
+    ).json()
+    assert g2["groups"][0]["value"] == "answer 0"
+    # A non-chat file has no `messages`, so the synthetic key is rejected.
+    csv = _path_of(server, "metrics.csv")
+    r = httpx.get(f"{server}/api/datasets/groups", params={"path": csv, "column": "message_1"})
+    assert r.status_code == 400
+
+
 def test_csv_info_and_rows(server: str):
     path = _path_of(server, "metrics.csv")
     info = httpx.get(f"{server}/api/datasets/info", params={"path": path}).json()

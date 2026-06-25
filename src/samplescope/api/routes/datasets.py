@@ -327,6 +327,22 @@ def _jsonify(d: dict) -> dict:
     return out
 
 
+def _group_expr(column: str, valid: set[str]) -> str:
+    """The SQL expression a group-by column maps to (always VARCHAR).
+
+    A real column is cast as-is. The synthetic `message_<n>` keys (offered only
+    when a chat-format `messages` field exists) extract `messages[n-1].content`
+    via JSON — `to_json` first so it works whether DuckDB inferred `messages` as
+    a struct list or as JSON. A real column named `message_<n>` still wins."""
+    if column in valid:
+        return f"CAST({_quote_ident(column)} AS VARCHAR)"
+    m = re.fullmatch(r"message_(\d+)", column)
+    if m and "messages" in valid:
+        i = int(m.group(1)) - 1
+        return f"json_extract_string(to_json({_quote_ident('messages')}), '$[{i}].content')"
+    raise HTTPException(400, f"unknown column {column!r}")
+
+
 @router.get("/groups", response_model=GroupsResponse)
 def group_rows(
     path: str,
@@ -359,11 +375,9 @@ def group_rows(
     )
     with cursor() as cur:
         valid = {d[0] for d in cur.execute(inner + " LIMIT 0", params).description}
-        if column not in valid:
-            raise HTTPException(400, f"unknown column {column!r}")
-        col = _quote_ident(column)
+        gexpr = _group_expr(column, valid)
         q = (
-            f"SELECT __idx, CAST({col} AS VARCHAR) AS __g FROM ("
+            f"SELECT __idx, {gexpr} AS __g FROM ("
             f"  SELECT *, ROW_NUMBER() OVER () AS __pos FROM ({inner}) s0"
             f") s1 ORDER BY __pos LIMIT {int(cap) + 1}"
         )
