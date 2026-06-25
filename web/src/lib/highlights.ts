@@ -116,6 +116,18 @@ function ruleApplies(rule: HighlightRule, ctx: HighlightContext): boolean {
 
 type Range = { start: number; end: number; color: string };
 
+// A mark's side padding (styles.css) visually detaches the highlight from text
+// it directly abuts — a partial-word match ("health" in "healthy") would read as
+// "health y". When a mark touches a word char, tag that side (hl-join-l/r) so the
+// CSS drops the padding there and the word reassembles seamlessly.
+const WORDISH = /[\p{L}\p{N}_]/u;
+function joinClasses(text: string, start: number, end: number): string[] {
+  const cls: string[] = [];
+  if (start > 0 && WORDISH.test(text[start - 1])) cls.push("hl-join-l");
+  if (end < text.length && WORDISH.test(text[end])) cls.push("hl-join-r");
+  return cls;
+}
+
 /** Non-overlapping match ranges over `text` for already-filtered rules (scope
  *  + combinator gating done by the caller). Paints every pattern of each rule. */
 function paintRanges(text: string, rules: HighlightRule[]): Range[] {
@@ -185,7 +197,7 @@ export function applyHighlights(
         "mark",
         {
           key: `hl-${i}-${r.start}`,
-          className: "viewer-hl",
+          className: ["viewer-hl", ...joinClasses(text, r.start, r.end)].join(" "),
           style: { ["--hl-bg" as any]: tint(r.color) },
         },
         text.slice(r.start, r.end),
@@ -209,12 +221,12 @@ type HastElement = {
 type HastChild = HastText | HastElement | { type: string; [k: string]: unknown };
 type HastRoot = { type: "root"; children: HastChild[] };
 
-function makeMarkNode(value: string, color: string): HastElement {
+function makeMarkNode(value: string, color: string, joins: string[] = []): HastElement {
   return {
     type: "element",
     tagName: "mark",
     properties: {
-      className: ["viewer-hl"],
+      className: ["viewer-hl", ...joins],
       style: `--hl-bg: ${tint(color)}`,
     },
     children: [{ type: "text", value }],
@@ -268,7 +280,7 @@ export function rehypeHighlights(
           if (r.start > cursor) {
             out.push({ type: "text", value: text.slice(cursor, r.start) });
           }
-          out.push(makeMarkNode(text.slice(r.start, r.end), r.color));
+          out.push(makeMarkNode(text.slice(r.start, r.end), r.color, joinClasses(text, r.start, r.end)));
           cursor = r.end;
         }
         if (cursor < text.length) {

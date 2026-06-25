@@ -99,3 +99,15 @@ mark.viewer-hl {
   padding: 0 1px;
   border-radius: 2px;
 }
+/* Partial-word match: the mark abuts a word char, so drop the padding + rounded
+   corner on that side — otherwise the 1px pad reads as a gap ("health y"). */
+mark.viewer-hl.hl-join-l {
+  padding-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+mark.viewer-hl.hl-join-r {
+  padding-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
