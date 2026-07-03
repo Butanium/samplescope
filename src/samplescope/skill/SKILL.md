@@ -1,59 +1,56 @@
+---
+name: samplescope
+description: Browse experiment outputs (JSONL/CSV/inspect-ai .eval) together with the human via samplescope — start the server, then drive the human's browser view from the terminal with `sscope view` (open files, jump to rows, filter, mark, judge, pin plots). Use when the human wants to look at samples/results/transcripts together, asks to "open X in the viewer", or when you want to show them specific rows instead of pasting walls of text.
+---
+
 # samplescope
 
-A research-focused browser for JSONL / CSV / inspect-ai `.eval` datasets.
-Point it at any directory; it auto-detects schemas and renders chat
-transcripts as bubbles, flat rows as a virtualized table, training curves as
-line charts, and `.eval` logs as rich sample cards — with regex/SQL
-filtering, shuffling, marks/annotations, LLM judges, and an embedded Claude
-chat that drives the UI.
+A local web app for close-reading experiment outputs, plus an `sscope view`
+CLI that drives the SAME view the human has open in their browser. You change
+the view from your shell; their screen follows live. This makes it the best
+way to *show* the human data: instead of pasting samples into chat, open the
+file, jump to the interesting row, and tell them to look.
 
-## Install & run
+**Which situation are you in?**
+
+- **Terminal session** (Claude Code in a repo): you may need to start or find
+  the server — see the next section.
+- **Embedded chat agent** (the chat drawer inside samplescope): the server is
+  already running and `sscope view` is pre-targeted at it via
+  `SAMPLESCOPE_BASE_URL`. Skip the server section entirely; just drive.
+
+## Start (or find) the server — terminal sessions only
 
 ```bash
-uv tool install samplescope        # or: uvx samplescope
-cd ~/my-project && samplescope     # serve datasets under cwd
-samplescope results/ logs/ --port 9000   # explicit dirs / port
+sscope view state            # a server already running for this cwd? (auto-discovery)
+sscope <dir>                 # serve datasets under <dir>; prints the URL
+                             # (shorthand for `sscope serve <dir>`)
 ```
 
-One process, one port — the built web UI ships inside the wheel. If the
-default port is taken (e.g. another instance), the next free one is picked
-automatically; running several instances against different projects is a
-supported workflow.
+- Run it in the background; it stays up. Relaunching on the same dirs is
+  idempotent (prints the existing URL instead of starting a twin).
+- Default port 8765, auto-picks the next free one — multiple instances for
+  different projects coexist fine.
+- Give the human the printed URL (e.g. http://127.0.0.1:8766).
+- `sscope view` auto-targets the instance whose scan root contains your
+  cwd. Outside any scan root: set `SAMPLESCOPE_BASE_URL` or pass
+  `sscope view --base-url <url> <cmd>`.
 
-The embedded Claude chat drawer ships by default (claude-agent-sdk); it
-authenticates via `ANTHROPIC_API_KEY` or a logged-in `claude` CLI session.
+## Drive the shared view
 
-## Keyboard
+The core loop:
 
-- `j` / `k` — next / prev row
-- `s` — shuffle
-- `/` — focus the regex filter
-- `m` / `g` / `c` / `?` — toggle marks / judges / chat / SQL drawers
+```bash
+sscope view ls                      # what files does the server see
+sscope view open <path>             # switch the human's view to this file
+sscope view goto 42                 # jump their view to row 42
+sscope view state                   # current shared view state
+```
 
-## Concepts
+Paths are relative to the server's serving root — use exactly what
+`sscope view ls` prints.
 
-- **Datasets** are auto-detected: chat (`messages` array) → bubble view, flat
-  rows → virtualized table, `step`-keyed metrics → line chart, CSV/TSV →
-  table, `.eval` → inspect log view.
-- **DuckDB reads files on the fly** — no ingest step. Filters use
-  `regexp_matches`, shuffling uses `ORDER BY hash(row, seed)`.
-- **Marks** (tags + free-text notes), **judge results**, and prefs persist in
-  `~/.local/state/samplescope/<key>/state.duckdb`, keyed by the scan-root
-  set — annotations survive restarts and the viewed repos stay clean.
-- **Judges**: built-in presets plus user-defined ones (saved to the state
-  DB). Needs `OPENAI_API_KEY` (or any inspect-ai-supported provider via the
-  preset's model field).
-- **Chat** is a real Claude Code session via `claude-agent-sdk`. Claude
-  drives the UI through `sscope view` (Bash subprocess) hitting the same
-  HTTP API the frontend uses.
-
-## `sscope view` CLI
-
-One binary, two halves: `sscope serve [DIR ...]` runs the server (bare
-`sscope <dir>` is shorthand), `sscope view <cmd>` drives the open view.
-`view` auto-discovers the running instance whose scan root contains your cwd
-(registry: `~/.local/state/samplescope/instances.json`); override with
-`SAMPLESCOPE_BASE_URL` or `--base-url`.
+Full command reference (generated from the CLI itself — trust it over memory):
 
 <!-- BEGIN GENERATED: sscope-view-reference (python -m samplescope._gen_cli_ref) -->
 ```
@@ -176,33 +173,38 @@ sscope view fields clear [options]
 ```
 <!-- END GENERATED: sscope-view-reference -->
 
-## Configuration
+## Collaboration patterns
 
-Env vars (a `.env` in the launch directory is auto-loaded):
+- **"Look at this one"**: `sscope view open <file>` → `sscope view goto 42` →
+  tell the human what to look at. Faster and richer than pasting the sample.
+- **Triage together**: `sscope view filter <regex>`, the human reads with j/k
+  in the browser while you `sscope view mark <idx> --tags interesting,weird
+  --note "…"` the noteworthy rows. Marks persist across restarts — they're a
+  shared annotation layer.
+- **Narrow by query**: `sscope view sql 'SELECT __idx, … FROM t WHERE …'
+  --apply selection` narrows the human's view to the matching rows so they
+  page through just those.
+- **Judge at scale, audit by hand**: `sscope view judge <preset> --scope
+  sample --n 50` (or `--scope indices --idx 3 --idx 17` for specific rows),
+  then jump to outliers. `--scope current` (the default) judges only the row
+  the view is on.
 
-- `OPENAI_API_KEY` — required for the default judge presets
-- `ANTHROPIC_API_KEY` — chat (a logged-in `claude` CLI session also works)
-- `SAMPLESCOPE_SCAN_ROOTS` — `:`-separated dirs (CLI args take precedence)
-- `SAMPLESCOPE_HOST` / `SAMPLESCOPE_PORT` — bind address
-- `SAMPLESCOPE_CHAT_MODEL` — chat model override
-- `SAMPLESCOPE_BASE_URL` — `sscope view` target (skips instance discovery)
+## Make your output files viewer-friendly
 
-## Architecture
+When generating files the human will read here, pick a schema the viewer
+auto-detects a good view for:
 
-Single FastAPI process holds the global `ViewerState`; the frontend mirrors
-it via SSE (`/api/state/events`). UI clicks and Claude tool calls publish
-into the same bus, so the view updates whether you click a row or Claude
-calls `sscope view goto 42` from chat. The compiled frontend is served by the
-same
-process (`/api` routes win precedence); the vite dev server is for
-development only.
+- **Chat view (best for prompt/completion data)** — give each JSONL row a
+  `messages: [{role, content}, ...]` list; it renders as chat bubbles. All
+  other scalar fields stay as metadata (filterable, sortable, judgeable).
+  Do NOT emit bare `prompt`/`completion` string columns — they fall back to
+  a wide truncating table and are painful to read.
+- **Table view** — flat scalar columns. Fine for metric dumps.
+- **Metrics view** — flat rows with a numeric `step` column and ≥3 numeric
+  columns render as training curves.
+- **Eval logs** — inspect-ai `.eval` files are first-class; no conversion.
+  CSV/TSV also work as-is.
 
-State DB schema lives in `api/duck.py::_init_state_schema`.
-
-## Development
-
-```bash
-make install   # uv sync --all-extras + npm install
-make dev       # api (--reload) on :8765 + vite on :5173, serving DIR=.
-make test      # pytest (API + CLI + playwright smoke)
-```
+Plot panel: pin matplotlib output via `sscope view plot add --file fig.png`;
+plotly figures via `--plotly fig.json` (the JSON is `figure.to_json()` output
+or any `{data, layout}` spec).

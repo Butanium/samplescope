@@ -13,7 +13,7 @@ install:
 	cd web && npm install
 
 api:
-	SAMPLESCOPE_PORT=$(API_PORT) uv run samplescope --reload $(DIR)
+	SAMPLESCOPE_PORT=$(API_PORT) uv run samplescope serve --reload $(DIR)
 
 web:
 	cd web && SAMPLESCOPE_API=http://127.0.0.1:$(API_PORT) WEB_PORT=$(WEB_PORT) npm run dev
@@ -22,7 +22,7 @@ dev:
 	@which concurrently >/dev/null 2>&1 || (cd web && npm install --no-save concurrently)
 	cd web && SAMPLESCOPE_API=http://127.0.0.1:$(API_PORT) WEB_PORT=$(WEB_PORT) \
 	  npx concurrently -n api,web -c green,cyan \
-	  "cd .. && SAMPLESCOPE_PORT=$(API_PORT) uv run samplescope --reload $(DIR)" \
+	  "cd .. && SAMPLESCOPE_PORT=$(API_PORT) uv run samplescope serve --reload $(DIR)" \
 	  "npm run dev"
 
 build:

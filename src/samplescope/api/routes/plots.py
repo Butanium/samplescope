@@ -3,14 +3,14 @@
 Tabs come from two sources:
   1. The user clicking an image or PDF in the dataset tree (frontend posts an
      `image` / `pdf` tab with `source_path`).
-  2. Claude posting a plotly figure or screenshot via the `viewer plot add`
+  2. Claude posting a plotly figure or screenshot via the `sscope view plot add`
      CLI — same endpoint, `kind="plotly"` carries the figure JSON inline.
 
 Storage lives in `state.plot_tabs` (DuckDB state DB), so tabs survive reload
 and follow the user across browsers — same plumbing as `state.user_prefs`.
 
 A separate SSE channel (`/api/plots/events`) pushes the live tab list so
-Claude's `viewer plot add` makes the new tab appear in an open browser
+Claude's `sscope view plot add` makes the new tab appear in an open browser
 without a refresh.
 """
 from __future__ import annotations

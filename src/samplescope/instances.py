@@ -4,9 +4,9 @@ Servers register themselves in `~/.local/state/samplescope/instances.json`
 on startup and unregister on exit. Entries whose pid is gone are pruned
 lazily on every read, so a SIGKILL'd server doesn't poison discovery.
 
-The `viewer` CLI uses `discover(cwd)` to pick the instance whose scan root
-contains the current directory — so `viewer ls` works from inside any viewed
-project with zero configuration.
+`sscope view` uses `discover(cwd)` to pick the instance whose scan root
+contains the current directory — so `sscope view ls` works from inside any
+viewed project with zero configuration.
 """
 from __future__ import annotations
 
@@ -143,7 +143,7 @@ def discover(cwd: Path) -> Instance:
         listing = "\n".join(f"  - {i.describe()}" for i in winners)
         raise DiscoveryError(
             f"multiple samplescope instances scan {cwd}:\n{listing}\n"
-            "Disambiguate with VIEWER_BASE_URL or --base-url."
+            "Disambiguate with SAMPLESCOPE_BASE_URL or --base-url."
         )
     if len(alive) == 1:
         return alive[0]
@@ -155,5 +155,5 @@ def discover(cwd: Path) -> Instance:
     listing = "\n".join(f"  - {i.describe()}" for i in alive)
     raise DiscoveryError(
         f"no samplescope instance scans {cwd}; running instances:\n{listing}\n"
-        "cd into a scanned directory, or set VIEWER_BASE_URL / --base-url."
+        "cd into a scanned directory, or set SAMPLESCOPE_BASE_URL / --base-url."
     )

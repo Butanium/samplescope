@@ -1,4 +1,4 @@
-"""Instance registry + `viewer` CLI discovery, exercised via real subprocesses."""
+"""Instance registry + `sscope view` discovery, exercised via real subprocesses."""
 from __future__ import annotations
 
 import json
@@ -16,12 +16,13 @@ REPO = Path(__file__).resolve().parents[1]
 
 
 def _viewer(args: list[str], cwd: Path, state_home: Path, **env_extra) -> subprocess.CompletedProcess:
+    """Run `sscope view <args>` as a subprocess (module form of the binary)."""
     env = os.environ.copy()
-    env.pop("VIEWER_BASE_URL", None)
+    env.pop("SAMPLESCOPE_BASE_URL", None)
     env["XDG_STATE_HOME"] = str(state_home)
     env.update(env_extra)
     return subprocess.run(
-        [sys.executable, "-m", "samplescope.cli", *args],
+        [sys.executable, "-m", "samplescope.cli", "view", *args],
         cwd=cwd,
         env=env,
         capture_output=True,
@@ -57,7 +58,7 @@ def test_cli_base_url_override(server: str, state_home: Path, tmp_path: Path):
 
 
 def test_cli_env_override(server: str, state_home: Path, tmp_path: Path):
-    r = _viewer(["ls"], cwd=tmp_path, state_home=state_home, VIEWER_BASE_URL=server)
+    r = _viewer(["ls"], cwd=tmp_path, state_home=state_home, SAMPLESCOPE_BASE_URL=server)
     assert r.returncode == 0, r.stderr
     assert "chat.jsonl" in r.stdout
 
@@ -122,6 +123,25 @@ def test_same_roots_relaunch_is_idempotent(server: str, state_home: Path, datase
     env["XDG_STATE_HOME"] = str(state_home)
     r = subprocess.run(
         [sys.executable, "-m", "samplescope.serve", str(dataset_dir)],
+        env=env,
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "already serving" in r.stdout
+    assert server in r.stdout
+
+
+def test_bare_dir_is_serve_shorthand(server: str, state_home: Path, dataset_dir: Path):
+    """`sscope <dir>` (no subcommand) routes to `serve <dir>` via the
+    _DefaultToServe group — exercised on the idempotent-relaunch path so it
+    returns instead of blocking on uvicorn."""
+    env = os.environ.copy()
+    env["XDG_STATE_HOME"] = str(state_home)
+    r = subprocess.run(
+        [sys.executable, "-m", "samplescope.cli", str(dataset_dir)],
         env=env,
         cwd=REPO,
         capture_output=True,

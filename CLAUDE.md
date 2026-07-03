@@ -26,15 +26,41 @@ aren't self-evident from the code.
   of the resolved scan-root set (`settings.scan_roots_key`). Same dirs →
   same marks/judges/prefs across restarts; different dir sets are isolated.
   The materialized-`.eval` cache lives in `<key>/cache/`.
+- **One binary, two halves.** `samplescope`/`sscope` both map to `cli:app`
+  (Typer): `sscope serve [DIR ...]` runs the server, `sscope view <verb>`
+  drives the open view. Bare `sscope <dir>` still works — the
+  `_DefaultToServe` group class injects `serve` when the first token isn't a
+  registered subcommand (consequence: serve options go *after* the dir,
+  `sscope ~/data --port 9000`). `serve.py:run_server` is the shared server
+  entry so `python -m samplescope.serve` and `sscope serve` behave
+  identically; `cmd_serve` imports uvicorn lazily to keep the `sscope view`
+  hot path light.
+- **CLI docs are generated, not hand-mirrored.** The `sscope view` command
+  reference in `src/samplescope/skill/SKILL.md` and `README.md` lives between
+  `BEGIN/END GENERATED` markers and is emitted from the Typer tree by
+  `python -m samplescope._gen_cli_ref` (introspect via `typer.core` classes —
+  typer vendors click, so standalone-`click` isinstance checks silently
+  fail). Changed the CLI? Rerun the generator; `tests/test_cli_docs.py`
+  fails otherwise (same pattern as `test_codegen.py` for TS types). The
+  non-generated skill prose (patterns, schema conventions) is still
+  hand-maintained — update it when behavior changes.
+- **The skill is packaged and preloaded.** `src/samplescope/skill/SKILL.md`
+  ships in the wheel and is the single source of truth; the repo's
+  `.claude/skills/samplescope/SKILL.md` is a symlink to it (terminal Claude
+  discovery). The embedded chat agent gets it *preloaded*: `chat.py` reads
+  the body (frontmatter stripped) and appends it after `CHAT_PREAMBLE` in
+  `system_prompt.append` — the SDK has no native main-loop skill preloading
+  (`ClaudeAgentOptions.skills` is a lazy-invoke filter; agent-frontmatter
+  `skills:` preloading is subagent-only).
 - **Instance discovery** (`instances.py`): servers register
   `{pid, host, port, scan_roots}` in
   `~/.local/state/samplescope/instances.json` (flock-serialized; stale
-  pids pruned on every read). The `viewer` CLI picks the instance whose
+  pids pruned on every read). `sscope view` picks the instance whose
   deepest scan root contains cwd; one running instance is used as fallback;
-  real ambiguity errors out listing candidates. `VIEWER_BASE_URL` /
-  `--base-url` bypass discovery. The chat-spawned `viewer` subprocess gets
-  `VIEWER_BASE_URL` injected via `ClaudeAgentOptions.env` (which the SDK
-  *merges* into the inherited environment) so it always self-targets.
+  real ambiguity errors out listing candidates. `SAMPLESCOPE_BASE_URL` /
+  `--base-url` bypass discovery. The chat-spawned `sscope view` subprocess
+  gets `SAMPLESCOPE_BASE_URL` injected via `ClaudeAgentOptions.env` (which
+  the SDK *merges* into the inherited environment) so it always self-targets.
 - **`SETTINGS.root`** is the common ancestor of all scan roots; every
   dataset path in the API is relative to it and `safe_path` refuses escapes.
   With multiple scan roots the root can be high (e.g. `~`); acceptable for a
@@ -193,7 +219,7 @@ aren't self-evident from the code.
 
 - **Automated tests hit a real server.** `tests/conftest.py` boots a live
   uvicorn `sscope` over a tmp dataset dir (session-scoped `server` fixture) with
-  `XDG_STATE_HOME` isolated to a tmp dir, so API tests, `viewer` CLI subprocess
+  `XDG_STATE_HOME` isolated to a tmp dir, so API tests, `sscope view` subprocess
   tests, and the pytest-playwright UI smokes (`tests/test_web.py`) all exercise
   production-like static serving + the instance registry. Add a regression test
   here for new behavior. `test_web.py` skips cleanly when `web/dist` isn't built;

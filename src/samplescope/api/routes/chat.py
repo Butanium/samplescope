@@ -77,62 +77,33 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 # each class inside the Claude Code CLI, so this list stays version-agnostic.
 ALLOWED_MODELS = ("haiku", "sonnet", "opus", "fable")
 
-CLI_INTRO = """\
-A `viewer` CLI is available via Bash; it drives the samplescope viewer the user is looking at.
-Prefer it for any dataset operation:
-  viewer ls                                  # discover datasets
-  viewer info <path>                         # row count + columns + view kind
-  viewer open <path>                         # switch the user's view
-  viewer goto <idx>                          # navigate
-  viewer filter <regex> [--column COL]       # apply filter
-  viewer shuffle                             # reshuffle
-  viewer sort <column> [--desc]              # sort by column
-  viewer sample <n>                          # n random rows
-  viewer mark <idx> [--tags ...] [--note ..] # mark / annotate
-  viewer judge <preset> [--scope ...]        # run a judge
-  viewer sql "<query>"                       # DuckDB SQL on the open file (FROM t)
-  viewer plot add --file path.png --title "…"  # pin an image/PDF tab to the plot panel
-  viewer plot add --plotly fig.json --title "…"  # pin a plotly figure (figure spec inline)
-  viewer fields add <column>                 # pin a metadata column above each row in the chat view
-  viewer fields rm <column>                  # unpin a pinned column
-  viewer fields ls                           # list currently-pinned columns
-  viewer state                               # current viewer state
-Run `viewer --help` for more. Use Read/Edit on Python source only when changing the CLI itself.
-
-# Viewer schema conventions
-
-When generating JSONL files the user will browse here, pick a schema that lets
-the viewer auto-detect a useful view (see `samplescope/api/schema_detect.py`):
-
-- **Chat view (preferred for prompt/completion pairs)** — every row carries a
-  `messages: [{role, content}, ...]` list. The conversation renders as bubbles;
-  every other scalar field on the row stays as metadata (visible via raw-JSON
-  toggle, marks, judges, SQL, sort, filter). Example row:
-  ```json
-  {
-    "messages": [
-      {"role": "user",      "content": "<prompt>"},
-      {"role": "assistant", "content": "<completion>"}
-    ],
-    "sample_idx": 0, "align": 25.0, "label": "misaligned", ...
-  }
-  ```
-  Do NOT emit bare `prompt`/`completion` strings without wrapping them in
-  `messages` — they fall back to the wide-table view and become hard to read.
-
-- **Table view** — flat scalar columns (string/int/float/bool). DuckDB infers
-  the schema; long string columns will be truncated in cells. Fine for metric
-  dumps, but if you have a prompt/completion field consider chat view instead.
-
-- **Metrics view** — flat rows with a numeric `step` column and ≥3 numeric
-  metric columns triggers a line-chart view. Use for training curves.
-
-- **Eval log** — `.eval` files (inspect-AI) are first-class; no conversion needed.
-
-Plot panel: matplotlib/PDF figures go in via `viewer plot add --file ...`;
-plotly figures inline via `viewer plot add --plotly fig.json` where `fig.json`
-contains the figure spec (`{data, layout}` or `figure.to_json()` output).
+# The embedded agent's system-prompt append = a short SITUATIONAL preamble
+# (below) + the full samplescope SKILL.md body (preloaded — the SDK has no
+# native main-loop skill preloading, so we read the packaged file ourselves;
+# see docs: modifying-system-prompts). The skill is the single source of
+# truth for the command surface (its reference block is generated from the
+# Typer app by `python -m samplescope._gen_cli_ref`), shared with terminal
+# Claude sessions and the README.
+CHAT_PREAMBLE = """\
+You are the chat agent embedded in a running samplescope server — the user is
+looking at its web UI right now, and your `sscope view` commands (via Bash)
+drive THEIR live view. You are in the "embedded chat agent" situation of the
+skill below: the server is already running and `sscope view` is pre-targeted
+at it via SAMPLESCOPE_BASE_URL — never start/find a server. Prefer driving
+the view over pasting data into chat. Use Read/Edit on Python source only
+when changing the CLI itself.
 """
+
+
+def _skill_body() -> str:
+    """The packaged SKILL.md body (frontmatter stripped), for prompt preload."""
+    from importlib.resources import files
+
+    text = files("samplescope").joinpath("skill/SKILL.md").read_text(encoding="utf-8")
+    return _re.sub(r"\A---\n.*?\n---\n", "", text, count=1, flags=_re.DOTALL)
+
+
+CLI_INTRO = CHAT_PREAMBLE + "\n" + _skill_body()
 
 
 @dataclass
@@ -255,10 +226,10 @@ def _build_options(
         permission_mode=permission_mode,
         # None ⇒ the CLI's configured default model.
         model=model or SETTINGS.chat_model,
-        # The chat-spawned `viewer` CLI must target *this* server instance —
+        # Chat-spawned `sscope view` must target *this* server instance —
         # not whatever cwd-based discovery would pick. Merged into the
         # subprocess env by the SDK (inherits the rest of os.environ).
-        env={"VIEWER_BASE_URL": SETTINGS.base_url},
+        env={"SAMPLESCOPE_BASE_URL": SETTINGS.base_url},
         system_prompt={
             "type": "preset",
             "preset": "claude_code",

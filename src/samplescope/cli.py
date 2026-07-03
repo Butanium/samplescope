@@ -1,6 +1,11 @@
-"""`viewer` CLI — drives samplescope through its HTTP API.
+"""`sscope` CLI — serve samplescope and drive its open view through the HTTP API.
 
-Designed for two callers:
+One branded entry point with two halves:
+  - `sscope serve [DIR ...]` launches the server (bare `sscope <dir>` is a
+    shorthand for it — see the `_DefaultToServe` group below).
+  - `sscope view <verb>` drives the view the human is looking at.
+
+Designed for two callers of the `view` half:
   - a human, from a terminal, as a real interactive tool.
   - Claude, via Bash, as a replacement for the MCP-tool surface.
 
@@ -8,7 +13,7 @@ The CLI hits the same FastAPI endpoints the frontend uses, so there is one
 source of truth and editing the CLI mid-chat takes effect on the next
 subprocess invocation. The target server is auto-discovered from the instance
 registry (the running instance whose scan root contains cwd); override with
-`VIEWER_BASE_URL` or `--base-url`.
+`SAMPLESCOPE_BASE_URL` or `--base-url`.
 
 Output is plain stdout: aligned-column tables for lists, compact JSON for
 single objects, and per-row progressive prints for streaming endpoints. Long
@@ -26,30 +31,30 @@ import httpx
 import typer
 from httpx_sse import connect_sse
 
-app = typer.Typer(
+view_app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
-    help="Drive the samplescope over its HTTP API.",
+    help="Drive the open samplescope view over its HTTP API.",
 )
 
 
 TRUNCATE_AT = 4000
 HTTP_TIMEOUT = 60.0
 
-# Resolved lazily (and cached) so plain `viewer --help` never touches the
-# instance registry. Precedence: --base-url > $VIEWER_BASE_URL > discovery
+# Resolved lazily (and cached) so plain `sscope view --help` never touches the
+# instance registry. Precedence: --base-url > $SAMPLESCOPE_BASE_URL > discovery
 # via ~/.local/state/samplescope/instances.json (instance whose scan root
 # contains cwd).
 _BASE_URL_OVERRIDE: str | None = None
 _BASE_URL: str | None = None
 
 
-@app.callback()
+@view_app.callback()
 def _global_options(
     base_url: Optional[str] = typer.Option(
         None,
         "--base-url",
-        help="viewer server URL (default: $VIEWER_BASE_URL, else auto-discover the running instance scanning cwd)",
+        help="samplescope server URL (default: $SAMPLESCOPE_BASE_URL, else auto-discover the running instance scanning cwd)",
     ),
 ) -> None:
     global _BASE_URL_OVERRIDE
@@ -61,7 +66,7 @@ def _base_url() -> str:
     global _BASE_URL
     if _BASE_URL is not None:
         return _BASE_URL
-    url = _BASE_URL_OVERRIDE or os.environ.get("VIEWER_BASE_URL")
+    url = _BASE_URL_OVERRIDE or os.environ.get("SAMPLESCOPE_BASE_URL")
     if not url:
         from .instances import DiscoveryError, discover
 
@@ -199,7 +204,7 @@ def _resolve_path(path: Optional[str]) -> str:
 # ---------- Discovery ----------
 
 
-@app.command("ls")
+@view_app.command("ls")
 def cmd_ls(
     filter_: Optional[str] = typer.Option(None, "--filter", help="substring match on path"),
 ) -> None:
@@ -220,7 +225,7 @@ def cmd_ls(
     print(f"\n{len(rows)} dataset(s)")
 
 
-@app.command("info")
+@view_app.command("info")
 def cmd_info(path: str) -> None:
     """Schema-detect one dataset: row count, columns, view kind."""
     info = _get("/api/datasets/info", params={"path": path})
@@ -230,21 +235,21 @@ def cmd_info(path: str) -> None:
 # ---------- Navigation ----------
 
 
-@app.command("open")
+@view_app.command("open")
 def cmd_open(path: str) -> None:
     """Open a dataset in the viewer (UI switches live)."""
     info = _post("/api/datasets/open", {"path": path})
     _print_json(info)
 
 
-@app.command("goto")
+@view_app.command("goto")
 def cmd_goto(idx: int) -> None:
     """Move the viewer to row index `idx`."""
     out = _post("/api/datasets/goto", {"idx": int(idx)})
     _print_json(out)
 
 
-@app.command("next")
+@view_app.command("next")
 def cmd_next() -> None:
     """Step the viewer forward one row (state-aware)."""
     st = _state()
@@ -253,7 +258,7 @@ def cmd_next() -> None:
     _print_json(out)
 
 
-@app.command("prev")
+@view_app.command("prev")
 def cmd_prev() -> None:
     """Step the viewer back one row (state-aware, clamped at 0)."""
     st = _state()
@@ -265,7 +270,7 @@ def cmd_prev() -> None:
 # ---------- Filtering / shuffling ----------
 
 
-@app.command("filter")
+@view_app.command("filter")
 def cmd_filter(
     regex: str,
     column: Optional[str] = typer.Option(None, "--column", help="restrict to one column; omit for whole-row"),
@@ -275,14 +280,14 @@ def cmd_filter(
     _print_json(out)
 
 
-@app.command("clear-filter")
+@view_app.command("clear-filter")
 def cmd_clear_filter() -> None:
     """Remove any active regex filter."""
     out = _post("/api/datasets/filter", {"regex": None, "column": None})
     _print_json(out)
 
 
-@app.command("shuffle")
+@view_app.command("shuffle")
 def cmd_shuffle(
     seed: Optional[int] = typer.Option(None, "--seed", help="explicit seed; omit for random"),
 ) -> None:
@@ -294,7 +299,7 @@ def cmd_shuffle(
     _print_json(out)
 
 
-@app.command("sort")
+@view_app.command("sort")
 def cmd_sort(
     column: str = typer.Argument(..., help="column name to sort by"),
     desc: bool = typer.Option(False, "--desc/--asc", help="sort direction (default ascending)"),
@@ -304,7 +309,7 @@ def cmd_sort(
     _print_json(out)
 
 
-@app.command("clear-sort")
+@view_app.command("clear-sort")
 def cmd_clear_sort() -> None:
     """Drop the active sort and return to natural / shuffled order."""
     out = _post("/api/datasets/sort", {"column": None})
@@ -314,7 +319,7 @@ def cmd_clear_sort() -> None:
 # ---------- Reads ----------
 
 
-@app.command("sample")
+@view_app.command("sample")
 def cmd_sample(n: int = typer.Argument(..., help="how many rows to draw")) -> None:
     """Pull n random rows from the currently-open dataset."""
     path = _resolve_path(None)
@@ -325,7 +330,7 @@ def cmd_sample(n: int = typer.Argument(..., help="how many rows to draw")) -> No
         _print_json(_truncate_row_fields(row))
 
 
-@app.command("rows")
+@view_app.command("rows")
 def cmd_rows(
     path: str,
     offset: int = typer.Option(0, "--offset"),
@@ -352,7 +357,7 @@ def cmd_rows(
         _print_json(_truncate_row_fields(row))
 
 
-@app.command("row")
+@view_app.command("row")
 def cmd_row(path: str, idx: int) -> None:
     """Read a single row by its original index."""
     row = _get("/api/datasets/row", params={"path": path, "idx": int(idx)})
@@ -369,7 +374,7 @@ def _parse_tags(tags: Optional[str]) -> list[str]:
     return [t.strip() for t in tags.split(",") if t.strip()]
 
 
-@app.command("mark")
+@view_app.command("mark")
 def cmd_mark(
     idx: int,
     tags: Optional[str] = typer.Option(None, "--tags", help="comma-separated tags"),
@@ -383,7 +388,7 @@ def cmd_mark(
     _print_json(out)
 
 
-@app.command("unmark")
+@view_app.command("unmark")
 def cmd_unmark(
     idx: int,
     path: Optional[str] = typer.Option(None, "--path"),
@@ -394,7 +399,7 @@ def cmd_unmark(
     _print_json(out)
 
 
-@app.command("marks")
+@view_app.command("marks")
 def cmd_marks(
     path: Optional[str] = typer.Option(None, "--path", help="filter to one dataset"),
 ) -> None:
@@ -417,7 +422,7 @@ def cmd_marks(
 # ---------- Judges ----------
 
 
-@app.command("judges")
+@view_app.command("judges")
 def cmd_judges() -> None:
     """List configured judge presets."""
     items = _get("/api/judges/presets")
@@ -440,7 +445,7 @@ def cmd_judges() -> None:
     print(f"\n{len(rows)} preset(s)")
 
 
-@app.command("add-judge")
+@view_app.command("add-judge")
 def cmd_add_judge(
     name: str,
     prompt_file: Optional[Path] = typer.Option(
@@ -488,7 +493,7 @@ def cmd_add_judge(
     _print_json(out)
 
 
-@app.command("settings")
+@view_app.command("settings")
 def cmd_settings(
     action: str = typer.Argument(..., help="'get' or 'set'"),
     key: Optional[str] = typer.Argument(None, help="for 'set'; only 'default_judge_model' is accepted"),
@@ -500,7 +505,7 @@ def cmd_settings(
         return
     if action == "set":
         if key != "default_judge_model" or value is None:
-            _die("usage: viewer settings set default_judge_model <model_id>")
+            _die("usage: sscope view settings set default_judge_model <model_id>")
         out = _put("/api/judges/settings", {"default_judge_model": value})
         _print_json(out)
         return
@@ -508,7 +513,7 @@ def cmd_settings(
 
 
 def _resolve_judge_indices(scope: str, n: int, idx: list[int], dataset_path: str) -> list[int]:
-    """Materialize the list of row indices for `viewer judge` from a scope spec."""
+    """Materialize the list of row indices for `sscope view judge` from a scope spec."""
     if scope == "current":
         st = _state()
         return [int(st.get("row_idx") or 0)]
@@ -523,7 +528,7 @@ def _resolve_judge_indices(scope: str, n: int, idx: list[int], dataset_path: str
     return []
 
 
-@app.command("judge")
+@view_app.command("judge")
 def cmd_judge(
     preset: str,
     scope: str = typer.Option("current", "--scope", help="current | sample | indices"),
@@ -576,7 +581,7 @@ highlights_app = typer.Typer(
     no_args_is_help=True,
     help="Named highlight rules that color matching text in row content.",
 )
-app.add_typer(highlights_app, name="highlights")
+view_app.add_typer(highlights_app, name="highlights")
 
 
 def _short_id() -> str:
@@ -660,7 +665,7 @@ def cmd_hl_toggle(rule_id: str) -> None:
 # ---------- SQL ----------
 
 
-@app.command("sql")
+@view_app.command("sql")
 def cmd_sql(
     query: str,
     path: Optional[str] = typer.Option(None, "--path", help="bound to FROM t; defaults to open dataset"),
@@ -695,7 +700,7 @@ def cmd_sql(
     print(f"\n{len(rows)} row(s)")
 
 
-@app.command("clear-sql")
+@view_app.command("clear-sql")
 def cmd_clear_sql() -> None:
     """Drop any applied SQL selection/view, restoring the natural view."""
     out = _post("/api/datasets/sql_apply", {"mode": "off"})
@@ -710,7 +715,7 @@ plots_app = typer.Typer(
     no_args_is_help=True,
     help="Persistent gallery of images, PDFs, and plotly figures.",
 )
-app.add_typer(plots_app, name="plot")
+view_app.add_typer(plots_app, name="plot")
 
 
 @plots_app.command("ls")
@@ -803,7 +808,7 @@ fields_app = typer.Typer(
     no_args_is_help=True,
     help="Pin row metadata fields to show above each row in the chat view.",
 )
-app.add_typer(fields_app, name="fields")
+view_app.add_typer(fields_app, name="fields")
 
 
 def _pinned_fields_key(path: str) -> str:
@@ -904,10 +909,64 @@ def cmd_fields_clear(
 # ---------- State ----------
 
 
-@app.command("state")
+@view_app.command("state")
 def cmd_state() -> None:
-    """Print the current viewer state (open dataset, row, filter, shuffle, …)."""
+    """Print the current view state (open dataset, row, filter, shuffle, …)."""
     _print_json(_state())
+
+
+# ---------- Top-level app: `serve` + `view`, with bare-dir shorthand ----------
+
+
+class _DefaultToServe(typer.core.TyperGroup):
+    """Make bare `sscope <dir>` (or any non-subcommand first token) mean
+    `sscope serve <dir>`.
+
+    A subcommand group otherwise claims the first positional as a command
+    name, so `sscope ~/data` would error with "No such command". We inject
+    `serve` only when the first token is a plain positional that isn't a
+    registered subcommand — so `sscope view …`, `sscope serve …`, `sscope
+    --help`, and bare `sscope` (→ help) are all untouched. The one constraint
+    is that serve options follow the dir (`sscope ~/data --port 9000`), since a
+    leading `--opt` suppresses the injection.
+    """
+
+    def parse_args(self, ctx, args):
+        if args and not args[0].startswith("-") and args[0] not in self.commands:
+            args = ["serve", *args]
+        return super().parse_args(ctx, args)
+
+
+app = typer.Typer(
+    cls=_DefaultToServe,
+    add_completion=False,
+    no_args_is_help=True,
+    help="samplescope: serve datasets in the browser and drive the open view.",
+)
+app.add_typer(view_app, name="view")
+
+
+@app.command("serve")
+def cmd_serve(
+    dirs: Optional[list[Path]] = typer.Argument(
+        None, help="directories to scan for datasets (default: cwd, or $SAMPLESCOPE_SCAN_ROOTS)"
+    ),
+    port: Optional[int] = typer.Option(
+        None, "--port", help="port to bind (default: first free port from 8765)"
+    ),
+    host: str = typer.Option(
+        os.environ.get("SAMPLESCOPE_HOST", "127.0.0.1"), "--host", help="host to bind"
+    ),
+    reload: bool = typer.Option(
+        False, "--reload", help="dev mode: auto-reload on source change"
+    ),
+) -> None:
+    """Serve the API + web UI for DIRS (bare `sscope <dir>` is shorthand for this)."""
+    # Lazy import: serve pulls in uvicorn, which we must keep off the hot path
+    # of every `sscope view …` invocation.
+    from .serve import run_server
+
+    run_server(dirs or None, host=host, port=port, reload=reload)
 
 
 def main() -> None:

@@ -47,24 +47,21 @@ def _pick_port(host: str, requested: int | None) -> int:
     sys.exit(f"no free port in {DEFAULT_PORT}-{DEFAULT_PORT + PORT_SCAN_SPAN - 1} on {host}")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        prog="samplescope",
-        description="Browse JSONL / CSV / inspect-ai .eval datasets in the browser.",
-    )
-    parser.add_argument(
-        "dirs",
-        nargs="*",
-        type=Path,
-        help="directories to scan for datasets (default: cwd, or $SAMPLESCOPE_SCAN_ROOTS)",
-    )
-    parser.add_argument("--port", type=int, default=None, help=f"port to bind (default: first free port from {DEFAULT_PORT})")
-    parser.add_argument("--host", default=os.environ.get("SAMPLESCOPE_HOST", "127.0.0.1"), help="host to bind (default: 127.0.0.1)")
-    parser.add_argument("--reload", action="store_true", help="dev mode: auto-reload on source change")
-    args = parser.parse_args()
+def run_server(
+    dirs: list[Path] | None = None,
+    *,
+    host: str = "127.0.0.1",
+    port: int | None = None,
+    reload: bool = False,
+) -> None:
+    """Resolve scan roots, claim a port, and serve the API + web UI.
 
-    if args.dirs:
-        dirs = [d.expanduser().resolve() for d in args.dirs]
+    Shared by the argparse `main()` (and `python -m samplescope.serve`) and the
+    Typer `sscope serve` command, so both entry points behave identically.
+    `dirs=None`/empty falls back to $SAMPLESCOPE_SCAN_ROOTS, then cwd.
+    """
+    if dirs:
+        dirs = [d.expanduser().resolve() for d in dirs]
     elif os.environ.get("SAMPLESCOPE_SCAN_ROOTS"):
         dirs = [
             Path(p).expanduser().resolve()
@@ -88,26 +85,26 @@ def main() -> None:
         return
 
     env_port = os.environ.get("SAMPLESCOPE_PORT")
-    requested = args.port if args.port is not None else (int(env_port) if env_port else None)
-    port = _pick_port(args.host, requested)
+    requested = port if port is not None else (int(env_port) if env_port else None)
+    port = _pick_port(host, requested)
 
     # The app module reads these at import time (incl. in --reload children).
     os.environ["SAMPLESCOPE_SCAN_ROOTS"] = ":".join(str(d) for d in dirs)
-    os.environ["SAMPLESCOPE_HOST"] = args.host
+    os.environ["SAMPLESCOPE_HOST"] = host
     os.environ["SAMPLESCOPE_PORT"] = str(port)
 
-    instances.register(args.host, port, tuple(dirs))
+    instances.register(host, port, tuple(dirs))
     # finally + atexit both fire on graceful paths (idempotent); a SIGKILL'd
     # entry is pruned lazily by the next registry read.
     atexit.register(instances.unregister)
     print(f"samplescope serving {', '.join(str(d) for d in dirs)}")
-    print(f"  → http://{args.host}:{port}")
+    print(f"  → http://{host}:{port}")
     try:
         uvicorn.run(
             "samplescope.api.main:app",
-            host=args.host,
+            host=host,
             port=port,
-            reload=args.reload,
+            reload=reload,
             # Plain asyncio, NOT uvloop: inspect-ai's sync read_eval_log goes
             # through nest_asyncio.apply(), which cannot patch uvloop loops
             # ("Can't patch loop of type uvloop.Loop" → 500 on .eval opens).
@@ -116,6 +113,24 @@ def main() -> None:
         )
     finally:
         instances.unregister()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="samplescope",
+        description="Browse JSONL / CSV / inspect-ai .eval datasets in the browser.",
+    )
+    parser.add_argument(
+        "dirs",
+        nargs="*",
+        type=Path,
+        help="directories to scan for datasets (default: cwd, or $SAMPLESCOPE_SCAN_ROOTS)",
+    )
+    parser.add_argument("--port", type=int, default=None, help=f"port to bind (default: first free port from {DEFAULT_PORT})")
+    parser.add_argument("--host", default=os.environ.get("SAMPLESCOPE_HOST", "127.0.0.1"), help="host to bind (default: 127.0.0.1)")
+    parser.add_argument("--reload", action="store_true", help="dev mode: auto-reload on source change")
+    args = parser.parse_args()
+    run_server(args.dirs, host=args.host, port=args.port, reload=args.reload)
 
 
 if __name__ == "__main__":

@@ -32,9 +32,10 @@ dependencies = [
 Repository = "https://github.com/Butanium/samplescope"
 
 [project.scripts]
-samplescope = "samplescope.serve:main"
-sscope = "samplescope.serve:main"  # short alias for the often-typed command
-viewer = "samplescope.cli:app"
+# One unified binary: `sscope serve` launches the server (bare `sscope <dir>`
+# is shorthand), `sscope view <verb>` drives the open view.
+samplescope = "samplescope.cli:app"
+sscope = "samplescope.cli:app"  # short alias for the often-typed command
 
 [build-system]
 requires = ["hatchling"]
