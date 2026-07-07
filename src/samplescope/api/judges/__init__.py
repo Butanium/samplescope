@@ -10,7 +10,7 @@
   ``@scorer`` factory.
 
 The package itself does not import any project-specific judges. Seed your
-preferred starter set via the CLI: ``viewer add-judge <name> --import-path
+preferred starter set via the CLI: ``sscope view add-judge <name> --import-path
 mod.path:fn --description "…"``.
 """
 from .registry import (

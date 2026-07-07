@@ -10,7 +10,7 @@ import { X, Plus } from "lucide-react";
 /**
  * Persistent gallery of images / PDFs / plotly figures. Tabs are
  * server-stored (see api/routes/plots.py) and pushed live over SSE so
- * `viewer plot add ...` from a chat session pops the new tab into the
+ * `sscope view plot add ...` from a chat session pops the new tab into the
  * already-open panel without a refresh.
  */
 export default function PlotPanel({ onClose }: { onClose: () => void }) {
@@ -59,7 +59,7 @@ export default function PlotPanel({ onClose }: { onClose: () => void }) {
           <div className="h-full flex items-center justify-center text-zinc-500 text-xs p-4 text-center">
             No plots yet.<br />
             Click a <code>.png</code> / <code>.pdf</code> in the tree, or have Claude run
-            <code className="ml-1">viewer plot add</code>.
+            <code className="ml-1">sscope view plot add</code>.
           </div>
         )}
       </div>

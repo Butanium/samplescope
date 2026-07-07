@@ -236,7 +236,7 @@ export default function JudgePanel({ onClose }: { onClose: () => void }) {
           <div className="p-3 text-zinc-500 text-[11px] leading-relaxed">
             no judge presets yet — click <span className="font-mono">new</span> above, or
             seed via CLI:
-            <pre className="mt-2 p-2 bg-zinc-100 dark:bg-zinc-900 rounded text-[10px] overflow-x-auto">{`viewer add-judge alignment \\
+            <pre className="mt-2 p-2 bg-zinc-100 dark:bg-zinc-900 rounded text-[10px] overflow-x-auto">{`sscope view add-judge alignment \\
   --import-path my_project.judges:alignment_judge \\
   --description "0-100 alignment via top-20 logprobs E[rating]"`}</pre>
           </div>

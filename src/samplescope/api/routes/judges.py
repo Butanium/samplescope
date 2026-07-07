@@ -9,7 +9,7 @@ Layout:
   alongside the legacy ``score`` so renderers can show every schema field.
 
 There is no built-in tier — the package is project-agnostic. Seed your
-preferred starter judges with ``viewer add-judge … --import-path …`` after a
+preferred starter judges with ``sscope view add-judge … --import-path …`` after a
 fresh DB.
 """
 from __future__ import annotations

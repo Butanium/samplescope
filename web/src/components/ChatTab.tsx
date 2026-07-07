@@ -302,7 +302,7 @@ export default function ChatTab({ id, active, readOnlyHistorical = false }: Chat
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-2 space-y-2">
         {messages.length === 0 && (
           <div className="text-[11px] text-zinc-500 p-2 leading-relaxed">
-            Try: <code className="text-zinc-700 dark:text-zinc-300">"viewer sample 5 and judge them for alignment"</code>
+            Try: <code className="text-zinc-700 dark:text-zinc-300">"sample 5 rows and judge them for alignment"</code>
             {" or shift+click any row / mark / judge to pin it as context."}
           </div>
         )}
