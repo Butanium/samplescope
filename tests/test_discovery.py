@@ -151,3 +151,22 @@ def test_bare_dir_is_serve_shorthand(server: str, state_home: Path, dataset_dir:
     assert r.returncode == 0, r.stderr
     assert "already serving" in r.stdout
     assert server in r.stdout
+
+
+def test_bare_no_args_serves_cwd(server: str, state_home: Path, dataset_dir: Path):
+    """Bare `sscope` (no args at all) serves cwd — the pre-unification
+    quickstart (`cd ~/my-project && sscope`). Same idempotent-relaunch trick:
+    cwd is the fixture's scan root, so it reports the running instance."""
+    env = os.environ.copy()
+    env["XDG_STATE_HOME"] = str(state_home)
+    r = subprocess.run(
+        [sys.executable, "-m", "samplescope.cli"],
+        env=env,
+        cwd=dataset_dir,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "already serving" in r.stdout
+    assert server in r.stdout

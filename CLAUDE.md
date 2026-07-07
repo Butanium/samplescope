@@ -28,9 +28,10 @@ aren't self-evident from the code.
   The materialized-`.eval` cache lives in `<key>/cache/`.
 - **One binary, two halves.** `samplescope`/`sscope` both map to `cli:app`
   (Typer): `sscope serve [DIR ...]` runs the server, `sscope view <verb>`
-  drives the open view. Bare `sscope <dir>` still works — the
-  `_DefaultToServe` group class injects `serve` when the first token isn't a
-  registered subcommand (consequence: serve options go *after* the dir,
+  drives the open view. Bare `sscope <dir>` — and bare `sscope`, which serves
+  cwd (the quickstart) — still work: the `_DefaultToServe` group class injects
+  `serve` when there are no args or the first token isn't a registered
+  subcommand (consequence: serve options go *after* the dir,
   `sscope ~/data --port 9000`). `serve.py:run_server` is the shared server
   entry so `python -m samplescope.serve` and `sscope serve` behave
   identically; `cmd_serve` imports uvicorn lazily to keep the `sscope view`

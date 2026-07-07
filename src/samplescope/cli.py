@@ -919,20 +919,22 @@ def cmd_state() -> None:
 
 
 class _DefaultToServe(typer.core.TyperGroup):
-    """Make bare `sscope <dir>` (or any non-subcommand first token) mean
-    `sscope serve <dir>`.
+    """Make `serve` the default subcommand: bare `sscope` serves cwd (the
+    pre-unification quickstart, `cd ~/my-project && sscope`) and `sscope
+    <dir>` means `sscope serve <dir>`.
 
     A subcommand group otherwise claims the first positional as a command
-    name, so `sscope ~/data` would error with "No such command". We inject
-    `serve` only when the first token is a plain positional that isn't a
-    registered subcommand — so `sscope view …`, `sscope serve …`, `sscope
-    --help`, and bare `sscope` (→ help) are all untouched. The one constraint
-    is that serve options follow the dir (`sscope ~/data --port 9000`), since a
-    leading `--opt` suppresses the injection.
+    name, so `sscope ~/data` would error with "No such command" and bare
+    `sscope` with "Missing command". We inject `serve` when there are no args
+    or when the first token is a plain positional that isn't a registered
+    subcommand — so `sscope view …`, `sscope serve …`, and `sscope --help`
+    are all untouched. The one constraint is that serve options follow the
+    dir (`sscope ~/data --port 9000`), since a leading `--opt` suppresses the
+    injection.
     """
 
     def parse_args(self, ctx, args):
-        if args and not args[0].startswith("-") and args[0] not in self.commands:
+        if not args or (not args[0].startswith("-") and args[0] not in self.commands):
             args = ["serve", *args]
         return super().parse_args(ctx, args)
 
@@ -940,7 +942,6 @@ class _DefaultToServe(typer.core.TyperGroup):
 app = typer.Typer(
     cls=_DefaultToServe,
     add_completion=False,
-    no_args_is_help=True,
     help="samplescope: serve datasets in the browser and drive the open view.",
 )
 app.add_typer(view_app, name="view")
