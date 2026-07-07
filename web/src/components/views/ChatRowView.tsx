@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { api } from "../../lib/api";
 import { useViewerState } from "../../lib/state";
 import { useRowPage, useRowFeed, usePublishNav } from "../../lib/rowPage";
 import { useGroups } from "../../lib/groups";
-import { nextMember, prevMember } from "../../lib/nav";
+import { nextIdx, prevIdx, nextMember, prevMember } from "../../lib/nav";
 import { useUrlSync } from "../../lib/url";
 import { usePref } from "../../lib/prefs";
 import { cn } from "../../lib/utils";
@@ -16,13 +16,51 @@ import Collapsible from "../Collapsible";
 import CopyButton from "../CopyButton";
 import MultiSelectChips from "../ui/MultiSelectChips";
 import { GroupedFeed, GroupCycler } from "../GroupedFeed";
-import { ChevronsDown, ChevronsRight, Pin } from "lucide-react";
+import { Brain, ChevronsDown, ChevronsRight, Pin } from "lucide-react";
 import { usePinHandler } from "../../lib/pin";
 import { useRawOverride } from "../../lib/rawOverrides";
 
 const PAGE = 100;
 
-type Message = { role: string; content: string };
+type Message = {
+  role: string;
+  content: any;
+  // HuggingFace reasoning schema + common ecosystem aliases.
+  reasoning_content?: string;
+  reasoning?: string;
+  thinking?: string;
+};
+
+/** Visible text of a message. Handles `content` as a plain string or as a list
+ *  of typed blocks (inspect / OpenAI-style), concatenating the text parts. */
+function msgText(msg: Message): string {
+  const c = msg.content;
+  if (typeof c === "string") return c;
+  if (Array.isArray(c)) {
+    return c
+      .map((b: any) => (typeof b === "string" ? b : b?.type === "text" ? (b.text ?? "") : ""))
+      .filter(Boolean)
+      .join("\n");
+  }
+  return c == null ? "" : String(c);
+}
+
+/** Reasoning trace for a message, if any. Recognizes the HuggingFace schema
+ *  (`reasoning_content`), the common aliases `reasoning` / `thinking`, and
+ *  reasoning blocks inside a content list (`{type:"reasoning"|"thinking"}`). */
+function msgReasoning(msg: Message): string {
+  const direct = msg.reasoning_content ?? msg.reasoning ?? msg.thinking;
+  if (typeof direct === "string" && direct.trim()) return direct;
+  const c = msg.content;
+  if (Array.isArray(c)) {
+    const parts = c
+      .filter((b: any) => b?.type === "reasoning" || b?.type === "thinking")
+      .map((b: any) => b?.reasoning ?? b?.text ?? "")
+      .filter(Boolean);
+    if (parts.length) return parts.join("\n");
+  }
+  return "";
+}
 
 const ROLE_RULE: Record<string, string> = {
   system: "bg-amber-500",
@@ -87,6 +125,30 @@ function fmtFieldValue(v: unknown): string {
   return JSON.stringify(v).slice(0, 80);
 }
 
+/** Foldable reasoning trace shown inside a message. Seeded open/closed from the
+ *  dataset-level default (the toolbar brain toggle); each panel is then
+ *  individually foldable. Flipping the default remounts the feed (see the key in
+ *  ChatRowView) which re-seeds every panel from the new default. */
+function ThinkingPanel({ text, defaultOpen }: { text: string; defaultOpen: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <details
+      open={open}
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+      onClick={(e) => e.stopPropagation()}
+      className="mb-2 rounded-sm border border-amber-500/30 bg-amber-500/[0.06]"
+    >
+      <summary className="cursor-pointer select-none px-2 py-1 flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-[0.18em] text-amber-600 dark:text-amber-400">
+        <Brain size={11} className="opacity-70" />
+        thinking
+      </summary>
+      <div className="px-2.5 pb-2 pt-1 text-zinc-700 dark:text-zinc-300 border-t border-amber-500/20">
+        <PreOrMarkdown text={text} mode="markdown" />
+      </div>
+    </details>
+  );
+}
+
 /** A single message: tiny role caption + 2px hue rule + body + hover actions. */
 function MessageBlock({
   msg, msgIdx, row, datasetPath, rowIdx, defaultRaw,
@@ -100,7 +162,9 @@ function MessageBlock({
 }) {
   const ruleClass = ROLE_RULE[msg.role] ?? "bg-zinc-400 dark:bg-zinc-600";
   const labelTone = ROLE_LABEL_TONE[msg.role] ?? "text-zinc-500";
-  const text = String(msg.content ?? "");
+  const text = msgText(msg);
+  const reasoning = msgReasoning(msg);
+  const [reasoningOpen] = usePref<boolean>("reasoningOpen", false);
   const [raw, toggleRaw] = useRawOverride(`msg::${datasetPath}::${rowIdx}::${msgIdx}`, defaultRaw);
   return (
     <div className="grid grid-cols-[2px_minmax(0,1fr)] gap-3 py-2 group/msg">
@@ -132,13 +196,16 @@ function MessageBlock({
             {JSON.stringify(msg, null, 2)}
           </pre>
         ) : (
-          <Collapsible lines={10} chars={520}>
-            <PreOrMarkdown
-              text={text}
-              mode="markdown"
-              highlightCtx={{ row, msg: { role: msg.role, content: text } }}
-            />
-          </Collapsible>
+          <>
+            {reasoning && <ThinkingPanel text={reasoning} defaultOpen={reasoningOpen} />}
+            <Collapsible lines={10} chars={520}>
+              <PreOrMarkdown
+                text={text}
+                mode="markdown"
+                highlightCtx={{ row, msg: { role: msg.role, content: text } }}
+              />
+            </Collapsible>
+          </>
         )}
       </div>
     </div>
@@ -150,7 +217,9 @@ function rowToMarkdown(row: Record<string, any>): string {
   const msgs = getMessages(row);
   const parts: string[] = [];
   for (const m of msgs) {
-    parts.push(`## ${m.role}\n\n${m.content ?? ""}`);
+    const r = msgReasoning(m);
+    const think = r ? `> 🧠 ${r.replace(/\n/g, "\n> ")}\n\n` : "";
+    parts.push(`## ${m.role}\n\n${think}${msgText(m)}`);
   }
   const others = Object.entries(row).filter(([k]) => k !== "messages");
   if (others.length > 0) {
@@ -284,6 +353,9 @@ function ChatMember({ idx, datasetPath, defaultRaw, pinnedFields }: {
     queryKey: ["row-chat", datasetPath, idx],
     queryFn: () => api.row(datasetPath, idx),
     enabled: !!datasetPath,
+    // Cycling members swaps `idx`: show the previous member until the next
+    // one lands rather than flashing a "loading…" placeholder.
+    placeholderData: keepPreviousData,
   });
   if (!row) return <div className="px-6 py-4 text-zinc-500 text-sm">loading…</div>;
   return (
@@ -410,6 +482,8 @@ function SingleMode({ datasetPath, defaultRaw, pinnedFields }: {
           rowIdx={v.row_idx}
           onPrev={() => { const t = prevMember(v.row_idx); if (t != null) api.goto(t); }}
           onNext={() => { const t = nextMember(v.row_idx); if (t != null) api.goto(t); }}
+          onPrevGroup={() => { const t = prevIdx(v.row_idx); if (t != null) api.goto(t); }}
+          onNextGroup={() => { const t = nextIdx(v.row_idx); if (t != null) api.goto(t); }}
         />
       )}
       <header className="flex items-center gap-3 px-6 pt-5 pb-3 text-[11px] font-mono border-b border-zinc-200/60 dark:border-zinc-800/70">
@@ -487,8 +561,11 @@ export default function ChatRowView() {
   const v = useViewerState();
   const { url, setViewMode, setRaw } = useUrlSync();
   const [defaultExpand, setDefaultExpand] = usePref<boolean>("defaultExpand", false);
+  // Whether reasoning (thinking) panels start unfolded. Dataset-independent —
+  // a reading-mode preference, not a per-file one.
+  const [reasoningOpen, setReasoningOpen] = usePref<boolean>("reasoningOpen", false);
   // Per-dataset pinned metadata fields. Same prefs plumbing as everything else —
-  // the CLI's `viewer fields …` commands write to the same key directly.
+  // the CLI's `sscope view fields …` commands write to the same key directly.
   const [pinnedFields, setPinnedFields] = usePref<string[]>(
     v.dataset_path ? pinnedFieldsKey(v.dataset_path) : "pinnedFields::__none__",
     [],
@@ -528,6 +605,18 @@ export default function ChatRowView() {
           )}
         </button>
         <button
+          onClick={() => setReasoningOpen(!reasoningOpen)}
+          title={reasoningOpen ? "reasoning unfolded by default (click to fold)" : "reasoning folded by default (click to unfold all)"}
+          className={cn(
+            "p-1 rounded transition-colors",
+            reasoningOpen
+              ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+              : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200",
+          )}
+        >
+          <Brain size={13} />
+        </button>
+        <button
           onClick={() => setDefaultExpand(!defaultExpand)}
           title={defaultExpand ? "default-expand on (click to collapse all)" : "default-expand off (click to expand all by default)"}
           className={cn(
@@ -548,7 +637,7 @@ export default function ChatRowView() {
             <Pin size={10} />
             pin fields to show above each row
             <span className="text-zinc-500 normal-case tracking-normal lowercase">
-              (also: <code>viewer fields add &lt;col&gt;</code>)
+              (also: <code>sscope view fields add &lt;col&gt;</code>)
             </span>
           </div>
           <MultiSelectChips
@@ -560,7 +649,7 @@ export default function ChatRowView() {
           />
         </div>
       )}
-      <div className="flex-1 min-h-0" key={`${defaultExpand}`}>
+      <div className="flex-1 min-h-0" key={`${defaultExpand}:${reasoningOpen}`}>
         {mode === "list" ? (
           <ListMode datasetPath={v.dataset_path} defaultRaw={url.raw} pinnedFields={pinnedFields} />
         ) : (
