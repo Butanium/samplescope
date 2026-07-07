@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { FoldVertical, UnfoldVertical } from "lucide-react";
 import { api } from "../../lib/api";
@@ -8,7 +8,7 @@ import { useUrlSync } from "../../lib/url";
 import { usePref } from "../../lib/prefs";
 import { useRowPage, useRowFeed, usePublishNav } from "../../lib/rowPage";
 import { useGroups } from "../../lib/groups";
-import { nextMember, prevMember } from "../../lib/nav";
+import { nextIdx, prevIdx, nextMember, prevMember } from "../../lib/nav";
 import { cn } from "../../lib/utils";
 import CopyButton from "../CopyButton";
 import RawJsonToggle from "../RawJsonToggle";
@@ -99,6 +99,9 @@ function SingleMode() {
     queryKey: ["row-json", v.dataset_path, v.row_idx],
     queryFn: () => api.row(v.dataset_path!, v.row_idx),
     enabled: !!v.dataset_path,
+    // Keep the previous row rendered while the next fetches (j/k, group
+    // cycling) instead of flashing "loading…" on every step.
+    placeholderData: keepPreviousData,
   });
 
   // Single-sample view: j/k over the *natural* order is handled by Layout's
@@ -137,6 +140,8 @@ function SingleMode() {
           rowIdx={v.row_idx}
           onPrev={() => { const t = prevMember(v.row_idx); if (t != null) api.goto(t); }}
           onNext={() => { const t = nextMember(v.row_idx); if (t != null) api.goto(t); }}
+          onPrevGroup={() => { const t = prevIdx(v.row_idx); if (t != null) api.goto(t); }}
+          onNextGroup={() => { const t = nextIdx(v.row_idx); if (t != null) api.goto(t); }}
         />
       )}
       <div className="flex-1 overflow-y-auto p-3">
@@ -171,6 +176,9 @@ function JsonMember({
     queryKey: ["row-json", v.dataset_path, idx],
     queryFn: () => api.row(v.dataset_path!, idx),
     enabled: !!v.dataset_path,
+    // Cycling members swaps `idx`: show the previous member until the next
+    // one lands rather than flashing a "loading…" placeholder.
+    placeholderData: keepPreviousData,
   });
   if (!data) return <div className="px-3 py-4 text-zinc-500 text-sm">loading…</div>;
   const ctx: NodeCtx = { markdown, ctxRow: data, defaultOpen, gen };

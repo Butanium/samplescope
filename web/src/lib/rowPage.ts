@@ -6,7 +6,7 @@
 // silently desyncs caches or breaks j/k navigation).
 
 import { useEffect } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import { useViewerState } from "./state";
 import { setNavIndices } from "./nav";
@@ -48,6 +48,10 @@ export function useRowPage(
         sort_desc: v.sort_desc,
       }),
     enabled: !!v.dataset_path && enabled,
+    // Keep the previous window on screen while the next one fetches (e.g.
+    // j/k or group-cycling changes `offset`) — a "loading…" flash on every
+    // step is pure flicker for a localhost fetch.
+    placeholderData: keepPreviousData,
   });
 }
 
