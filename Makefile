@@ -29,7 +29,7 @@ build:
 	cd web && npm run build
 
 test:
-	uv run pytest
+	uv run python -m pytest
 
 clean:
 	rm -rf web/node_modules web/dist src/samplescope/web_dist dist
