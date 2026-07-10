@@ -8,6 +8,7 @@ import MetricsView from "./views/MetricsView";
 import EvalLogView from "./views/EvalLogView";
 import JsonTreeView from "./views/JsonTreeView";
 import MarkdownView from "./views/MarkdownView";
+import StatsView from "./views/StatsView";
 import SqlView from "./views/SqlView";
 import ChatDrawer from "./ChatDrawer";
 import SqlPad from "./SqlPad";
@@ -18,10 +19,10 @@ import HelpPanel from "./HelpPanel";
 import PlotPanel from "./PlotPanel";
 import ThemeToggle from "./ThemeToggle";
 import { useViewerState } from "../lib/state";
-import { useUrlSync } from "../lib/url";
+import { useUrlSync, type RenderView } from "../lib/url";
 import { api } from "../lib/api";
 import { nextIdx, prevIdx, nextMember, prevMember } from "../lib/nav";
-import { MessageSquare, Database, Star, Scale, Terminal, HelpCircle, Highlighter, Image as ImageIcon, ChevronDown, ChevronUp, LineChart as LineChartIcon, Table as TableIcon } from "lucide-react";
+import { MessageSquare, Database, Star, Scale, Terminal, HelpCircle, Highlighter, Image as ImageIcon, ChevronDown, ChevronUp, LineChart as LineChartIcon, Table as TableIcon, PieChart } from "lucide-react";
 import { cn } from "../lib/utils";
 
 export default function Layout() {
@@ -196,14 +197,12 @@ function DrawerToggle({ icon, active, title, onClick }: {
   );
 }
 
-type ViewMode = "samples" | "table" | "plot";
-
 function ViewSwitch() {
   const v = useViewerState();
-  // Client-side render-mode override. `null` = follow the detected default.
-  // Reset whenever the open dataset changes (available modes differ).
-  const [mode, setMode] = useState<ViewMode | null>(null);
-  useEffect(() => setMode(null), [v.dataset_path]);
+  const { url, setView } = useUrlSync();
+  // The render-mode override lives in the URL (`view=`), so it's deep-linkable
+  // and survives navigation-driven re-renders. Clearing it on a dataset switch
+  // is owned by UrlSyncBridge's mirror (single URL writer — see url.ts).
 
   if (!v.dataset_path) {
     return (
@@ -221,14 +220,27 @@ function ViewSwitch() {
   // SQL view mode (C) overrides the dataset's native view kind.
   if (v.sql_mode === "view") return <SqlView />;
 
-  // The same multi-sample dataset can be rendered three ways. Which are offered
-  // depends on shape: a per-sample view always; a table when rows are flat; a
-  // plot when there's a numeric `step` axis plus another numeric series.
+  // The same multi-sample dataset can be rendered several ways. Which are
+  // offered depends on shape: a per-sample view always; a table when rows are
+  // flat; a plot when there's a numeric `step` axis plus another numeric series;
+  // a stats breakdown for anything but markdown. Stats is never the default.
   const canTable = v.tabular;
   const canPlot = v.numeric_cols.includes("step") && v.numeric_cols.length >= 2;
-  const defaultMode: ViewMode =
+  const canStats = v.view_kind !== "markdown";
+  const defaultMode: RenderView =
     v.view_kind === "metrics" ? "plot" : v.view_kind === "table" ? "table" : "samples";
-  const active: ViewMode = mode ?? defaultMode;
+
+  const modes = (["samples", "table", "plot", "stats"] as RenderView[]).filter(
+    (m) =>
+      m === "samples" ||
+      (m === "table" && canTable) ||
+      (m === "plot" && canPlot) ||
+      (m === "stats" && canStats),
+  );
+  // A URL view no longer available (e.g. carried over from a sibling file) falls
+  // back to the default — without rewriting the URL, so it re-applies if the
+  // dataset later offers it.
+  const active: RenderView = url.view && modes.includes(url.view) ? url.view : defaultMode;
 
   const samples = () => {
     switch (v.view_kind) {
@@ -241,25 +253,28 @@ function ViewSwitch() {
   };
 
   const render = () =>
-    active === "plot" ? <MetricsView /> : active === "table" ? <TableRowView /> : samples();
+    active === "plot" ? <MetricsView />
+    : active === "table" ? <TableRowView />
+    : active === "stats" ? <StatsView />
+    : samples();
 
   // Only one applicable mode → no toggle, just render it.
-  const modes = (["samples", "table", "plot"] as ViewMode[]).filter(
-    (m) => m === "samples" || (m === "table" && canTable) || (m === "plot" && canPlot),
-  );
   if (modes.length <= 1) return render();
 
   return (
     <div className="h-full flex flex-col min-h-0">
       <div className="shrink-0 flex items-center gap-1 px-3 py-1 border-b border-zinc-200 dark:border-zinc-800">
         {modes.includes("samples") && (
-          <ViewToggleButton active={active === "samples"} onClick={() => setMode("samples")} icon={<Database size={12} />} label="samples" />
+          <ViewToggleButton active={active === "samples"} onClick={() => setView("samples")} icon={<Database size={12} />} label="samples" />
         )}
         {modes.includes("table") && (
-          <ViewToggleButton active={active === "table"} onClick={() => setMode("table")} icon={<TableIcon size={12} />} label="table" />
+          <ViewToggleButton active={active === "table"} onClick={() => setView("table")} icon={<TableIcon size={12} />} label="table" />
         )}
         {modes.includes("plot") && (
-          <ViewToggleButton active={active === "plot"} onClick={() => setMode("plot")} icon={<LineChartIcon size={12} />} label="plot" />
+          <ViewToggleButton active={active === "plot"} onClick={() => setView("plot")} icon={<LineChartIcon size={12} />} label="plot" />
+        )}
+        {modes.includes("stats") && (
+          <ViewToggleButton active={active === "stats"} onClick={() => setView("stats")} icon={<PieChart size={12} />} label="stats" />
         )}
       </div>
       <div className="flex-1 min-h-0">{render()}</div>

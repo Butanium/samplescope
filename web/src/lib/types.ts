@@ -25,6 +25,8 @@ export type JudgePreset = Schemas["JudgePreset"];
 export type JudgeSettings = Schemas["JudgeSettings"];
 export type GroupBucket = Schemas["GroupBucket"];
 export type GroupsResponse = Schemas["GroupsResponse"];
+export type ColumnStats = Schemas["ColumnStats"];
+export type StatsResponse = Schemas["StatsResponse"];
 
 /** File-tree classification, derived from a file's extension. */
 export type FileKind = DatasetEntry["kind"];

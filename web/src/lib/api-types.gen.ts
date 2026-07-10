@@ -533,6 +533,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/datasets/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dataset Stats
+         * @description Per-column distributions over the visible rows.
+         *
+         *     Composes with the active regex filter and SQL selection exactly like
+         *     `/groups` (same params, same BUS plumbing). Markdown files are rejected;
+         *     `.eval` works automatically via `query_path`. The synthetic `__idx` column
+         *     is dropped.
+         */
+        get: operations["dataset_stats_api_datasets_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/eval-logs/header": {
         parameters: {
             query?: never;
@@ -1076,6 +1101,55 @@ export interface components {
             /** Text */
             text: string;
         };
+        /** ColumnHistogram */
+        ColumnHistogram: {
+            /** Bin Edges */
+            bin_edges: number[];
+            /** Counts */
+            counts: number[];
+            /**
+             * Is Length
+             * @default false
+             */
+            is_length: boolean;
+        };
+        /** ColumnStats */
+        ColumnStats: {
+            /** Count */
+            count: number;
+            /** Distinct */
+            distinct?: number | null;
+            /**
+             * Dtype
+             * @enum {string}
+             */
+            dtype: "numeric" | "boolean" | "categorical" | "text" | "list" | "struct" | "other";
+            histogram?: components["schemas"]["ColumnHistogram"] | null;
+            /**
+             * Index Like
+             * @default false
+             */
+            index_like: boolean;
+            /** Max */
+            max?: number | null;
+            /** Mean */
+            mean?: number | null;
+            /** Median */
+            median?: number | null;
+            /** Min */
+            min?: number | null;
+            /** Name */
+            name: string;
+            /** Nulls */
+            nulls: number;
+            /**
+             * Other Count
+             * @default 0
+             */
+            other_count: number;
+            /** Top Values */
+            top_values?: components["schemas"]["TopValue"][] | null;
+        };
         /**
          * DatasetEntry
          * @description One discoverable file in the scan roots.
@@ -1307,6 +1381,22 @@ export interface components {
             }[];
             /** Total Filtered */
             total_filtered: number;
+        };
+        /** StatsResponse */
+        StatsResponse: {
+            /** Columns */
+            columns: components["schemas"]["ColumnStats"][];
+            /** Path */
+            path: string;
+            /** Total Rows */
+            total_rows: number;
+        };
+        /** TopValue */
+        TopValue: {
+            /** Count */
+            count: number;
+            /** Value */
+            value: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -2175,6 +2265,42 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dataset_stats_api_datasets_stats_get: {
+        parameters: {
+            query: {
+                path: string;
+                filter_regex?: string | null;
+                filter_column?: string | null;
+                shuffle_seed?: number | null;
+                sort_column?: string | null;
+                sort_desc?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsResponse"];
                 };
             };
             /** @description Validation Error */

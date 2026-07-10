@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from urllib.parse import quote
 
 import httpx
 import pytest
@@ -44,11 +45,24 @@ def test_open_chat_dataset_and_navigate(page: Page, server: str):
 
 def test_open_csv_renders_table(page: Page, server: str):
     page.goto(server)
+    open_file(page, "plain.csv")
+    # Scalar-only CSV (name,age,city) → the flat `table` view by default: its
+    # column headers render. (`filter(visible=...)`: the names also appear in the
+    # header's hidden sort/group/filter-column <option>s.)
+    main = page.get_by_role("main")
+    expect(main.get_by_text("name", exact=True).filter(visible=True).first).to_be_visible()
+    expect(main.get_by_text("city", exact=True).filter(visible=True).first).to_be_visible()
+
+
+def test_open_metrics_csv_renders_plot(page: Page, server: str):
+    page.goto(server)
     open_file(page, "metrics.csv")
-    # Table view shows the CSV's column headers. (`filter(visible=...)`:
-    # the column names also appear in a hidden filter-column <option>.)
-    expect(page.get_by_text("loss", exact=True).filter(visible=True)).to_be_visible()
-    expect(page.get_by_text("acc", exact=True).filter(visible=True)).to_be_visible()
+    # metrics.csv (numeric, unique `step`, no long text) detects as `metrics` →
+    # the plot view is the default; toggling switches it to the flat table.
+    main = page.get_by_role("main")
+    expect(main.get_by_text(re.compile(r"numeric columns"))).to_be_visible()
+    main.get_by_role("button", name="table", exact=True).click()
+    expect(main.get_by_text(re.compile(r"click a row to expand"))).to_be_visible()
 
 
 def test_json_field_hide_folds_and_persists(page: Page, server: str):
@@ -212,3 +226,55 @@ def test_regex_filter_narrows_rows(page: Page, server: str):
     page.keyboard.press("Enter")
     expect(page.get_by_text("question 7", exact=True)).to_be_visible()
     expect(page.get_by_text("question 0", exact=True)).not_to_be_visible()
+
+
+# ── wide-CSV view modes (samples/table/stats) + JSON-string expansion ─────────
+# These deep-link `?path=…` (the URL is the full view state) rather than clicking
+# the tree: it forces the bridge's openDataset on mount, so the render is
+# deterministic regardless of what the shared session server had open before.
+
+
+def test_wide_csv_defaults_to_cards_and_toggles_table(page: Page, server: str):
+    page.goto(f"{server}/?path={quote('wide_text.csv')}")
+    main = page.get_by_role("main")
+    # Long free-text CSV → json card view by default (not the truncating table):
+    # top-level fields render as `key:` labels.
+    expect(main.get_by_text("category:", exact=True).first).to_be_visible()
+    # The samples/table/stats mode toggle bar is present (no plot: no `step`).
+    expect(main.get_by_role("button", name="samples", exact=True)).to_be_visible()
+    expect(main.get_by_role("button", name="table", exact=True)).to_be_visible()
+    expect(main.get_by_role("button", name="stats", exact=True)).to_be_visible()
+    # Switch to the table → the spreadsheet header appears; URL carries view=table.
+    main.get_by_role("button", name="table", exact=True).click()
+    expect(main.get_by_text(re.compile(r"click a row to expand"))).to_be_visible()
+    expect(page).to_have_url(re.compile(r"view=table"))
+
+
+def test_stats_deeplink_renders_grid(page: Page, server: str):
+    page.goto(f"{server}/?path={quote('wide_text.csv')}&view=stats")
+    main = page.get_by_role("main")
+    # StatsView header (12 rows, unfiltered) + a per-column card for `category`.
+    # `filter(visible=True)`: `category` also appears in the header's hidden
+    # sort/group/filter-column <option>s, which sort first in the DOM.
+    expect(main.get_by_text(re.compile(r"12\s*rows"))).to_be_visible()
+    expect(main.get_by_text("category", exact=True).filter(visible=True).first).to_be_visible()
+    # `id` is a contiguous index → excluded from the grid, named in the footer.
+    expect(main.get_by_text(re.compile(r"skipped index-like:.*id"))).to_be_visible()
+
+
+def test_json_string_cell_expands(page: Page, server: str, dataset_dir):
+    # The frontend seam only matters for a JSON-object string the backend leaves
+    # as a string: `_jsonify` parses TOP-LEVEL cells server-side (so wide_text's
+    # `answer` arrives pre-parsed), but not values NESTED inside an object. So
+    # this uses `meta.grade` — a nested JSON string — which reaches the client as
+    # a raw string and is expanded in-place by jsonCards' StringLeaf.
+    f = dataset_dir / "nested_json_cell.jsonl"
+    f.write_text(json.dumps({"id": 0, "meta": {"grade": '{"verdict": "pass"}', "other": "plain"}}) + "\n")
+    try:
+        page.goto(f"{server}/?path={quote('nested_json_cell.jsonl')}&view=samples&mode=single&idx=0")
+        main = page.get_by_role("main")
+        # `verdict:` only renders as a field if StringLeaf parsed the nested
+        # string; without the seam it would show the raw `{"verdict": …}` text.
+        expect(main.get_by_text("verdict:", exact=True)).to_be_visible()
+    finally:
+        f.unlink(missing_ok=True)

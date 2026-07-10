@@ -62,6 +62,8 @@ sscope view ls [options]
   --filter TEXT                     substring match on path
 sscope view info <path>
   # Schema-detect one dataset: row count, columns, view kind.
+sscope view stats [path]
+  # Per-column distribution breakdown (dtype, nulls, min/max, top values).
 sscope view open <path>
   # Open a dataset in the viewer (UI switches live).
 sscope view goto <idx>

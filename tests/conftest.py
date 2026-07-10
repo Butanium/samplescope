@@ -9,6 +9,8 @@ never touch ~/.local/state/samplescope.
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
 import socket
@@ -34,6 +36,21 @@ def state_home(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return tmp_path_factory.mktemp("xdg-state")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_in_process_state(state_home: Path):
+    """Point in-process samplescope imports (e.g. detect_view unit tests) at the
+    same isolated XDG state dir the server subprocess uses, so they never touch
+    ~/.local/state/samplescope. Subprocess fixtures set XDG_STATE_HOME
+    explicitly anyway; this only matters for tests that import the package."""
+    prev = os.environ.get("XDG_STATE_HOME")
+    os.environ["XDG_STATE_HOME"] = str(state_home)
+    yield
+    if prev is None:
+        os.environ.pop("XDG_STATE_HOME", None)
+    else:
+        os.environ["XDG_STATE_HOME"] = prev
+
+
 @pytest.fixture(scope="session")
 def dataset_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A directory with one chat JSONL, one flat-table JSONL, and one CSV."""
@@ -57,6 +74,11 @@ def dataset_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     )
     (d / "metrics.csv").write_text(
         "step,loss,acc\n" + "\n".join(f"{i},{1.0 / (i + 1):.3f},{i * 0.05:.2f}" for i in range(10)) + "\n"
+    )
+    # Scalar-only, no step column: the one CSV that still detects as `table`
+    # (metrics.csv → metrics, wide_text.csv → json), for table-default UI tests.
+    (d / "plain.csv").write_text(
+        "name,age,city\n" + "\n".join(f"person{i},{20 + i},city{i % 4}" for i in range(8)) + "\n"
     )
     sub = d / "nested"
     sub.mkdir()
@@ -105,6 +127,30 @@ def dataset_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
         )
         + "\n"
     )
+    # A wide CSV mixing an index column, long free-text, a JSON-object cell, a
+    # float score, and a 3-way categorical. Long text routes detection to the
+    # `json` card view (tabular still True); the JSON cell gives the frontend's
+    # JSON-cell expansion a target; `id`/`score` are the numeric columns.
+    cats = ["alpha", "beta", "gamma"]
+    long_q = "Why does the model respond the way it does in this scenario? " * 5
+    long_a = "Because the grading rubric rewards this pattern of behavior; " * 5
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["id", "question", "answer", "score", "category"])
+    for i in range(12):
+        question = long_q if i % 2 == 0 else f"short question {i}"
+        if i == 3:
+            answer = (
+                '{"verdict": "pass", "notes": "looks correct and complete against '
+                'the rubric provided in the grading instructions for this sample"}'
+            )
+        elif i % 2 == 1:
+            answer = long_a
+        else:
+            answer = f"short answer {i}"
+        score = round((i % 10) / 10 + 0.01, 3)  # in [0, 1]
+        w.writerow([i, question, answer, score, cats[i % 3]])
+    (d / "wide_text.csv").write_text(buf.getvalue())
     (d / "notes.md").write_text("# Title\n\nSome **markdown** prose.\n")
     return d
 

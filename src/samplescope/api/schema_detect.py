@@ -31,9 +31,7 @@ def detect_view(path: Path, peek: int = 64) -> tuple[ViewKind, dict]:
     if path.suffix.lower() in MARKDOWN_SUFFIXES:
         return "markdown", {}
     if path.suffix.lower() in {".csv", ".tsv"}:
-        # CSVs are flat by construction; let TableRowView handle them. Schema +
-        # rowcount come from DuckDB downstream in `dataset_info`.
-        return "table", {"format": path.suffix.lower().lstrip(".")}
+        return _detect_csv(path, peek)
     if not path.exists() or path.stat().st_size == 0:
         return "json", {"empty": True}
     rows: list[dict] = []
@@ -72,13 +70,23 @@ def detect_view(path: Path, peek: int = 64) -> tuple[ViewKind, dict]:
     # `numeric_cols` (plottable series) and `tabular` (flat rows → a spreadsheet
     # is meaningful) are reported in every branch so the frontend can offer
     # table / plot as alternate renderings of the same multi-sample dataset.
-    numeric_cols = _numeric_columns(rows)
     flat = all(_is_flat(r) for r in rows)
-    meta_common = {"numeric_cols": numeric_cols, "tabular": flat}
-
     if all(_is_chat_row(r) for r in rows):
-        return "chat", {"sampled": len(rows), **meta_common}
-    if flat:
+        return "chat", {"sampled": len(rows), "numeric_cols": _numeric_columns(rows), "tabular": flat}
+    return _classify_flat_rows(rows, tabular=flat)
+
+
+def _classify_flat_rows(rows: list[dict], *, tabular: bool, extra_meta: dict | None = None) -> tuple[ViewKind, dict]:
+    """Shared metrics-curve / long-text / table decision over flat rows.
+
+    Rows must already hold JSON scalars (CSV rows are normalized first). Chat
+    detection is the caller's job — CSV skips it (a `messages` column there is a
+    JSON string the chat renderer can't consume). `tabular` is the flatness
+    verdict: always True for CSV, `all(_is_flat)` for JSONL/JSON.
+    """
+    numeric_cols = _numeric_columns(rows)
+    meta = {"numeric_cols": numeric_cols, "tabular": tabular, **(extra_meta or {})}
+    if tabular:
         # A genuine training-curve log is a flat dict of mostly numbers, one row
         # per logging step. Per-sample logs (RL rollouts, eval rows) often *also*
         # carry a `step` plus a couple numeric fields (reward/advantage), but
@@ -92,14 +100,59 @@ def detect_view(path: Path, peek: int = 64) -> tuple[ViewKind, dict]:
             and not _has_long_text(rows)
         )
         if is_curve:
-            return "metrics", meta_common
+            return "metrics", meta
         # Flat rows carrying long free-text (prompt/response/thinking) read far
         # better as per-sample cards than as a truncating spreadsheet; a plain
         # tabular dump (short scalars only) stays a table.
         if _has_long_text(rows):
-            return "json", meta_common
-        return "table", meta_common
-    return "json", meta_common
+            return "json", meta
+        return "table", meta
+    return "json", meta
+
+
+def _detect_csv(path: Path, peek: int) -> tuple[ViewKind, dict]:
+    """CSV/TSV: sniff the first `peek` rows so the frontend can offer the same
+    samples / table / plot toggle it gets for JSONL. CSV is flat by
+    construction, so `tabular` is always True and chat detection is skipped."""
+    fmt = path.suffix.lower().lstrip(".")
+    try:
+        rows = _read_csv_rows(path, peek)
+    except Exception:
+        # Malformed / unreadable CSV is a system boundary — a file listed by the
+        # scan can vanish or be half-written before detection runs. Discovery
+        # must not 500; fall back to the plain table view. `dataset_info`'s own
+        # DuckDB read surfaces the real error to the client if it persists.
+        return "table", {"format": fmt}
+    return _classify_flat_rows(rows, tabular=True, extra_meta={"format": fmt})
+
+
+def _read_csv_rows(path: Path, peek: int) -> list[dict]:
+    """Read the first `peek` CSV rows via DuckDB, normalized to JSON scalars."""
+    from .duck import cursor
+    from .source import read_source_expr
+
+    src = read_source_expr(path)  # read_csv_auto(?, header=true[, delim='\t'])
+    with cursor() as cur:
+        cur.execute(f"SELECT * FROM {src} LIMIT {int(peek)}", [str(path)])
+        cols = [c[0] for c in cur.description] if cur.description else []
+        raw = cur.fetchall()
+    return [{k: _normalize_scalar(v) for k, v in zip(cols, r)} for r in raw]
+
+
+def _normalize_scalar(v):
+    """Coerce a DuckDB CSV value to a JSON scalar for the flat-row heuristics.
+
+    `Decimal` → float (counts as numeric); `date`/`datetime`/other non-JSON
+    scalars → a short string (non-numeric, never long text)."""
+    from decimal import Decimal
+
+    if v is None or isinstance(v, bool):
+        return v
+    if isinstance(v, Decimal):
+        return float(v)
+    if isinstance(v, (str, int, float)):
+        return v
+    return str(v)
 
 
 def _is_chat_row(row: dict) -> bool:

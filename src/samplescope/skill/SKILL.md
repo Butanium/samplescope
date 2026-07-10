@@ -59,6 +59,8 @@ sscope view ls [options]
   --filter TEXT                     substring match on path
 sscope view info <path>
   # Schema-detect one dataset: row count, columns, view kind.
+sscope view stats [path]
+  # Per-column distribution breakdown (dtype, nulls, min/max, top values).
 sscope view open <path>
   # Open a dataset in the viewer (UI switches live).
 sscope view goto <idx>
@@ -192,18 +194,38 @@ sscope view fields clear [options]
 ## Make your output files viewer-friendly
 
 When generating files the human will read here, pick a schema the viewer
-auto-detects a good view for:
+auto-detects a good view for (detection sniffs the first 64 rows):
 
-- **Chat view (best for prompt/completion data)** — give each JSONL row a
-  `messages: [{role, content}, ...]` list; it renders as chat bubbles. All
-  other scalar fields stay as metadata (filterable, sortable, judgeable).
-  Do NOT emit bare `prompt`/`completion` string columns — they fall back to
-  a wide truncating table and are painful to read.
-- **Table view** — flat scalar columns. Fine for metric dumps.
-- **Metrics view** — flat rows with a numeric `step` column and ≥3 numeric
-  columns render as training curves.
+- **Chat view (best for anything conversation-shaped)** — give each JSONL row
+  a `messages: [{role, content}, ...]` list; it renders as chat bubbles.
+  Rules that matter:
+  - EVERY row needs a non-empty `messages` list and every message needs both
+    a `role` and a `content` key — detection is all-rows, so one empty or
+    malformed row silently demotes the whole file to the generic card view.
+  - `content` is a plain string (simplest) or an OpenAI-style block list
+    (`[{type: "text", text: ...}, ...]`).
+  - Reasoning traces render as collapsible panels: put them in
+    `reasoning_content` / `reasoning` / `thinking` on the message, or as
+    `{type: "reasoning"|"thinking", ...}` blocks inside a content list.
+  - All other top-level row fields stay as metadata (filterable, sortable,
+    judgeable, pinnable above each row).
+- **Card view (per-sample JSON)** — flat rows where some field holds free
+  text >200 chars. The right shape for per-sample dumps that aren't
+  conversations (bare `prompt`/`completion` columns land here — readable,
+  but prefer `messages` when the data really is a dialogue).
+- **Table view** — flat rows of short scalars only.
+- **Metrics view** — flat numeric rows with a `step` column that's ~unique
+  per row (a real logging curve), ≥3 numeric columns, no long text.
 - **Eval logs** — inspect-ai `.eval` files are first-class; no conversion.
-  CSV/TSV also work as-is.
+- **CSV/TSV** — sniffed with the same heuristics as JSONL (a long-text CSV
+  opens as cards, a step curve as a plot), and JSON-encoded string cells
+  render expanded in the card view. Still prefer JSONL for anything with
+  nested structure; chat view never triggers from CSV.
+
+Every multi-sample view has a samples/table/plot/stats toggle in the header;
+`stats` shows per-column distributions (pies for categoricals, histograms for
+numerics) over the currently visible (filtered) rows — also available as
+`sscope view stats`.
 
 Plot panel: pin matplotlib output via `sscope view plot add --file fig.png`;
 plotly figures via `--plotly fig.json` (the JSON is `figure.to_json()` output

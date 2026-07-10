@@ -52,6 +52,39 @@ class GroupsResponse(BaseModel):
     truncated: bool
 
 
+class ColumnHistogram(BaseModel):
+    bin_edges: list[float]   # len == len(counts) + 1, monotone
+    counts: list[int]
+    is_length: bool = False  # histogram of string/list LENGTHS, not values
+
+
+class TopValue(BaseModel):
+    value: str
+    count: int
+
+
+class ColumnStats(BaseModel):
+    name: str
+    dtype: Literal["numeric", "boolean", "categorical", "text", "list", "struct", "other"]
+    count: int               # non-null count
+    nulls: int
+    distinct: int | None = None   # None where DISTINCT is not computable (structs)
+    index_like: bool = False
+    min: float | None = None
+    max: float | None = None
+    mean: float | None = None
+    median: float | None = None
+    histogram: ColumnHistogram | None = None
+    top_values: list[TopValue] | None = None  # top 20 by count, desc
+    other_count: int = 0     # non-null rows not covered by top_values
+
+
+class StatsResponse(BaseModel):
+    path: str
+    total_rows: int          # rows AFTER filter/selection
+    columns: list[ColumnStats]
+
+
 class MarkRecord(BaseModel):
     dataset_path: str
     row_idx: int

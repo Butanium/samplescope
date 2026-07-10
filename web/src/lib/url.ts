@@ -6,6 +6,7 @@
 //   - the visible drawer                        (`drawer=chat|marks|judges|sql|help|highlights`)
 //   - the chat session id                       (`session=<id>`)
 //   - the row-view sub-mode                     (`mode=list|single`)
+//   - the render-mode override                  (`view=samples|table|plot|stats`)
 //   - whether to render every row as raw JSON   (`raw=1`)
 //
 // IMPORTANT: the actual URL↔state effects are owned by `<UrlSyncBridge />`
@@ -21,6 +22,8 @@ import { useViewerState } from "./state";
 
 export type DrawerKey = "none" | "chat" | "marks" | "judges" | "sql" | "help" | "highlights" | "plots";
 export type ViewMode = "list" | "single";
+/** Render-mode override for the multi-view datasets (null = detected default). */
+export type RenderView = "samples" | "table" | "plot" | "stats";
 
 export type UrlState = {
   path: string | null;
@@ -36,11 +39,13 @@ export type UrlState = {
   drawer: DrawerKey;
   session: string | null;
   viewMode: ViewMode;
+  view: RenderView | null;
   raw: boolean;
   groupBy: string | null;
 };
 
 const DRAWERS: DrawerKey[] = ["none", "chat", "marks", "judges", "sql", "help", "highlights", "plots"];
+const RENDER_VIEWS: RenderView[] = ["samples", "table", "plot", "stats"];
 
 export function readUrl(params: URLSearchParams): UrlState {
   const get = (k: string) => params.get(k);
@@ -59,6 +64,7 @@ export function readUrl(params: URLSearchParams): UrlState {
     drawer: DRAWERS.includes(drawer) ? drawer : "none",
     session: get("session") || null,
     viewMode: get("mode") === "single" ? "single" : "list",
+    view: RENDER_VIEWS.includes(get("view") as RenderView) ? (get("view") as RenderView) : null,
     raw: get("raw") === "1",
     groupBy: get("group") || null,
   };
@@ -110,6 +116,15 @@ export function useUrlSync() {
     }, { replace: true });
   }, [setParams]);
 
+  const setView = useCallback((view: RenderView | null) => {
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (view) next.set("view", view);
+      else next.delete("view");
+      return next;
+    }, { replace: true });
+  }, [setParams]);
+
   const setGroupBy = useCallback((column: string | null) => {
     setParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -132,7 +147,7 @@ export function useUrlSync() {
     await api.setFilter(regex, column);
   }, [setParams]);
 
-  return { url, setDrawer, setSession, setViewMode, setRaw, setGroupBy, setFilter };
+  return { url, setDrawer, setSession, setViewMode, setView, setRaw, setGroupBy, setFilter };
 }
 
 /**
@@ -145,6 +160,7 @@ export function UrlSyncBridge() {
   const v = useViewerState();
   const [params, setParams] = useSearchParams();
   const initialized = useRef(false);
+  const prevPath = useRef<string | null>(null);
 
   useEffect(() => {
     if (initialized.current) return;
@@ -180,12 +196,20 @@ export function UrlSyncBridge() {
 
   // Mirror server-driven state back into the URL.
   useEffect(() => {
+    // The render-mode override (`view=`) is per-dataset — drop it when switching
+    // to a *different* dataset (its available modes differ), but keep a deep-
+    // linked `view=` on first load (prevPath is still null then). Folded into the
+    // mirror's single setParams so it can't race a separate `view` writer and
+    // clobber the `path` write (react-router batched updaters don't compose).
+    const datasetSwitched = prevPath.current !== null && prevPath.current !== v.dataset_path;
+    prevPath.current = v.dataset_path;
     setParams((prev) => {
       const next = new URLSearchParams(prev);
       const setOrDel = (k: string, val: string | number | null | undefined) => {
         if (val == null || val === "") next.delete(k);
         else next.set(k, String(val));
       };
+      if (datasetSwitched) next.delete("view");
       setOrDel("path", v.dataset_path);
       setOrDel("idx", v.row_idx || null);
       setOrDel("shuffle", v.shuffle_seed);

@@ -139,7 +139,12 @@ def test_group_by_synthetic_message_keys(server: str):
 def test_csv_info_and_rows(server: str):
     path = _path_of(server, "metrics.csv")
     info = httpx.get(f"{server}/api/datasets/info", params={"path": path}).json()
-    assert info["view_kind"] == "table"
+    # A step curve (unique `step`, ≥3 numeric cols, no long text) now sniffs as
+    # the metrics view — CSVs get the same row-level detection JSONL gets.
+    assert info["view_kind"] == "metrics"
+    assert info["detect_meta"]["tabular"] is True
+    assert set(info["detect_meta"]["numeric_cols"]) == {"step", "loss", "acc"}
+    assert info["detect_meta"]["format"] == "csv"
     assert info["row_count"] == 10
     assert info["columns"] == ["step", "loss", "acc"]
 
@@ -164,6 +169,82 @@ def test_sql_rejects_writes(server: str):
         f"{server}/api/datasets/sql",
         json={"sql": "DROP TABLE t", "path": _path_of(server, "metrics.csv")},
     )
+    assert r.status_code == 400
+
+
+def test_stats_wide_text_csv(server: str):
+    path = _path_of(server, "wide_text.csv")
+    st = httpx.get(f"{server}/api/datasets/stats", params={"path": path}).json()
+    assert st["total_rows"] == 12
+    cols = {c["name"]: c for c in st["columns"]}
+    assert "__idx" not in cols
+
+    # `id` is an integer 0..11 → index_like; its histogram covers every row.
+    idc = cols["id"]
+    assert idc["dtype"] == "numeric"
+    assert idc["index_like"] is True
+    hist = idc["histogram"]
+    assert len(hist["bin_edges"]) == len(hist["counts"]) + 1
+    assert hist["bin_edges"] == sorted(hist["bin_edges"])  # monotone
+    assert sum(hist["counts"]) == idc["count"]  # counts sum to non-null count
+
+    # `score` is a float in [0, 1]; not index_like (not integer).
+    sc = cols["score"]
+    assert sc["dtype"] == "numeric"
+    assert sc["index_like"] is False
+    assert 0.0 <= sc["min"] <= sc["max"] <= 1.0
+
+    # `category` cycles through exactly 3 values, 4 each → 12.
+    cat = cols["category"]
+    assert cat["dtype"] == "categorical"
+    assert cat["distinct"] == 3
+    assert {t["value"] for t in cat["top_values"]} == {"alpha", "beta", "gamma"}
+    assert sum(t["count"] for t in cat["top_values"]) == 12
+    assert cat["other_count"] == 0
+
+
+def test_stats_composes_with_filter(server: str):
+    path = _path_of(server, "wide_text.csv")
+    st = httpx.get(
+        f"{server}/api/datasets/stats", params={"path": path, "filter_regex": "alpha"}
+    ).json()
+    # Only the 4 category=alpha rows survive the filter (same semantics as /groups).
+    assert st["total_rows"] == 4
+    cat = {c["name"]: c for c in st["columns"]}["category"]
+    assert {t["value"]: t["count"] for t in cat["top_values"]} == {"alpha": 4}
+
+
+def test_stats_jsonl_text_histogram_and_index(server: str):
+    # big.jsonl: `label` is high-cardinality (250 distinct) → text with a
+    # length histogram; `rid` is a contiguous 0-based index.
+    path = _path_of(server, "big.jsonl")
+    st = httpx.get(f"{server}/api/datasets/stats", params={"path": path}).json()
+    assert st["total_rows"] == 250
+    cols = {c["name"]: c for c in st["columns"]}
+    assert cols["rid"]["index_like"] is True
+    label = cols["label"]
+    assert label["dtype"] == "text"
+    assert label["distinct"] == 250
+    assert label["histogram"]["is_length"] is True
+    assert sum(label["histogram"]["counts"]) == label["count"]
+
+
+def test_stats_list_dtype_and_categorical(server: str):
+    # chat.jsonl: `messages` is a LIST → length histogram; `label` categorical.
+    path = _path_of(server, "chat.jsonl")
+    st = httpx.get(f"{server}/api/datasets/stats", params={"path": path}).json()
+    cols = {c["name"]: c for c in st["columns"]}
+    assert cols["messages"]["dtype"] == "list"
+    assert cols["messages"]["histogram"]["is_length"] is True
+    assert cols["score"]["dtype"] == "numeric"
+    label = cols["label"]
+    assert label["dtype"] == "categorical"
+    assert {t["value"] for t in label["top_values"]} == {"even", "odd"}
+
+
+def test_stats_rejects_markdown(server: str):
+    path = _path_of(server, "notes.md")
+    r = httpx.get(f"{server}/api/datasets/stats", params={"path": path})
     assert r.status_code == 400
 
 

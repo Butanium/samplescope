@@ -83,12 +83,36 @@ aren't self-evident from the code.
   rows carrying long free-text (prompt/response/thinking) → `json` (per-sample
   *cards*, not the truncating spreadsheet); a flat numeric log is only `metrics`
   if `step` is ~unique per row AND there's no long text (otherwise it's
-  per-sample data that merely has a `step`). `Layout.tsx`'s `ViewSwitch` then
-  turns `view_kind` + `numeric_cols`/`tabular` into a **samples / table / plot**
-  toggle over the *same* dataset; `JsonTreeView` adds a **single / scroll**
-  (feed, virtualized) sub-toggle sharing `url.viewMode` with the chat view.
-  So "what you see" = detection default, overridable client-side; nothing is
-  locked to one renderer.
+  per-sample data that merely has a `step`). **CSV/TSV go through the same
+  heuristic tail** (`_classify_flat_rows`): rows are sniffed via DuckDB
+  (`api/source.py:read_source_expr`, extracted to break the
+  datasets↔schema_detect import cycle), `tabular` is always true, chat
+  detection is skipped (a `messages` CSV cell is a JSON string the chat
+  renderer can't consume), and an unreadable CSV degrades to plain `table`
+  rather than 500ing discovery. `Layout.tsx`'s `ViewSwitch` then turns
+  `view_kind` + `numeric_cols`/`tabular` into a **samples / table / plot /
+  stats** toggle over the *same* dataset; `JsonTreeView` adds a **single /
+  scroll** (feed, virtualized) sub-toggle sharing `url.viewMode` with the chat
+  view. So "what you see" = detection default, overridable client-side; nothing
+  is locked to one renderer. The override lives in the URL (`view=`,
+  `url.view`, client-only like `group`/`raw`) — and its per-dataset *clearing*
+  is folded into `UrlSyncBridge`'s mirror (deleted in the same `setParams` that
+  writes the new `path`, gated by a `prevPath` ref so deep links survive first
+  load). Do NOT add a second `setParams` writer for it: two writers race on
+  dataset switch and the loser resurrects the previous dataset's URL.
+
+- **Stats render mode = per-column distributions of the visible slice.**
+  `GET /api/datasets/stats` mirrors `/groups`' param plumbing (same query
+  params + BUS sql-selection), so it composes with filter/SQL selection; per
+  column it classifies a dtype family and returns top-20 value counts
+  (`top_values` + `other_count`), a ~24-bin equal-width histogram (numeric, or
+  `length()` with `is_length` for high-cardinality text / lists), min/max/mean/
+  median, and an `index_like` flag (contiguous 0/1-based all-distinct int).
+  `StatsView.tsx` picks the chart by shape — donut ≤8 categories (null slice
+  from `nulls`), horizontal bars above that, histogram otherwise — and folds
+  `index_like` columns behind a "skipped index-like" footer toggle. Numerics
+  with `distinct ≤ 12` get *both* top_values and histogram; the frontend
+  prefers top_values. Also exposed as `sscope view stats [PATH]`.
 
 - **JSON cards: schema-keyed top-level field layout.** Only the *outermost*
   object of each row gets it (nested cards keep the plain recursive render).
@@ -118,7 +142,12 @@ aren't self-evident from the code.
   is just the view shells (`SingleMode`/`ListMode`/`RecordBlock` + toolbars) that
   compose both. Edit the renderer in `jsonCards`, the field UX in `fieldLayout`,
   the single/scroll plumbing in `JsonTreeView` — no import cycles (leaf ← layout
-  ← shells).
+  ← shells). String leaves that hold embedded JSON objects/arrays render as the
+  parsed structure (`StringLeaf`, memoized; a "json" badge marks it, copy yields
+  the original string). Two layers deliberately overlap here: the backend's
+  `_jsonify` (routes/datasets.py) parses *top-level* JSON-string cells
+  server-side but does not recurse, so `StringLeaf` is what expands *nested*
+  ones — don't "simplify" either side away.
 
 - **Navigation steps through visible order, not `row_idx ± 1`.**
   `web/src/lib/nav.ts` is a module-level cursor; views publish their

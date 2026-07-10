@@ -15,10 +15,23 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
 
+import duckdb
+
 from ..duck import cursor, safe_path
-from ..models import DatasetEntry, DatasetInfo, GroupBucket, GroupsResponse, RowPage
+from ..models import (
+    ColumnHistogram,
+    ColumnStats,
+    DatasetEntry,
+    DatasetInfo,
+    GroupBucket,
+    GroupsResponse,
+    RowPage,
+    StatsResponse,
+    TopValue,
+)
 from ..schema_detect import MARKDOWN_SUFFIXES, FileKind, detect_view
 from ..settings import SETTINGS
+from ..source import read_source_expr
 from ..state import BUS
 
 router = APIRouter(prefix="/api/datasets", tags=["datasets"])
@@ -28,28 +41,10 @@ JSONL_SUFFIXES = {".jsonl", ".ndjson"}
 # are dispatched through `_read_source` like JSONL.
 CSV_SUFFIXES = {".csv", ".tsv"}
 
-
-def _read_source(p: Path, param: str = "?") -> str:
-    """Return the DuckDB table-producing expression for a path's extension.
-
-    `param` is the placeholder (use `?` for parameterized queries; pass a
-    literal `'...'`-wrapped path for inline use in `_from_t_clause`).
-    Dispatch is on the *post* `query_path` extension — `.eval` doesn't reach
-    here because it's materialized to JSONL first.
-    """
-    ext = p.suffix.lower()
-    if ext == ".tsv":
-        return f"read_csv_auto({param}, header=true, delim='\\t')"
-    if ext == ".csv":
-        return f"read_csv_auto({param}, header=true)"
-    if ext == ".json":
-        # A plain `.json` file is a single JSON value — a pretty-printed object
-        # or an array of records — not newline-delimited. `format='auto'` lets
-        # DuckDB detect the shape: an array becomes one row per element, a lone
-        # object becomes a single row. Forcing 'newline_delimited' here 500s on
-        # any multi-line JSON.
-        return f"read_json_auto({param}, format='auto', union_by_name=true)"
-    return f"read_json_auto({param}, format='newline_delimited', union_by_name=true)"
+# The read expression now lives in `api/source.py` (so `schema_detect` can build
+# it without importing this router); keep the short alias for the many call
+# sites here and in `api/routes/metrics.py`.
+_read_source = read_source_expr
 
 # Eval logs are materialized to one-line-per-sample JSONL under .cache/ on first
 # access, then every read goes through the same DuckDB path as a normal JSONL.
@@ -400,6 +395,203 @@ def group_rows(
         total_rows=len(rows),
         truncated=truncated,
     )
+
+
+# ---- Column statistics -----------------------------------------------------
+#
+# `/stats` computes a per-column distribution (histogram / top-values) over the
+# *visible* rows. It mirrors `/groups`' parameter plumbing exactly (same query
+# params + BUS sql-selection), so the breakdown always matches what the main
+# pane shows. Per-column queries re-scan the file — fine, DuckDB is fast and
+# this is a localhost single-user tool.
+
+_INT_TYPES = {
+    "TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT",
+    "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT", "UHUGEINT",
+}
+_FLOAT_TYPES = {"FLOAT", "DOUBLE", "REAL"}
+_HISTOGRAM_BINS = 24
+
+
+def _dtype_family(duck_type: str) -> str:
+    """Map a DuckDB column type string to a coarse stats family."""
+    t = duck_type.strip().upper()
+    if t.endswith("[]") or t.startswith("LIST"):
+        return "list"
+    if t.startswith("STRUCT") or t.startswith("MAP") or t.startswith("UNION") or t == "JSON":
+        return "struct"
+    if t in ("BOOLEAN", "BOOL"):
+        return "boolean"
+    if t in _INT_TYPES or t in _FLOAT_TYPES or t.startswith("DECIMAL") or t.startswith("NUMERIC"):
+        return "numeric"
+    if t.startswith("VARCHAR") or t.startswith("CHAR") or t in ("TEXT", "STRING"):
+        return "varchar"
+    return "other"
+
+
+def _f(v) -> float | None:
+    """Coerce a DuckDB numeric (int / Decimal / float) to float, passing None."""
+    return None if v is None else float(v)
+
+
+def _safe_distinct(cur, base: str, col: str, params: list) -> int | None:
+    """`count(DISTINCT col)`, or None when the type can't be hashed (structs)."""
+    try:
+        return int(cur.execute(f"SELECT count(DISTINCT {col}) FROM {base}", params).fetchone()[0])
+    except duckdb.Error:
+        return None
+
+
+def _top_values(cur, base: str, col: str, params: list, nonnull: int, limit: int = 20):
+    """Top `limit` non-null values of `col` by count (desc), plus the residual.
+
+    Nulls are excluded (the frontend renders the null slice from `nulls`)."""
+    rows = cur.execute(
+        f"SELECT CAST({col} AS VARCHAR) AS v, count(*) AS c FROM {base} "
+        f"WHERE {col} IS NOT NULL GROUP BY v ORDER BY c DESC, v LIMIT {int(limit)}",
+        params,
+    ).fetchall()
+    top = [TopValue(value=str(v), count=int(c)) for v, c in rows]
+    other = max(0, nonnull - sum(t.count for t in top))
+    return top, other
+
+
+def _equal_width_histogram(
+    cur, base: str, expr: str, params: list, nonnull: int, *, is_length: bool
+) -> ColumnHistogram | None:
+    """~24-bin equal-width histogram of a numeric `expr` over the visible rows.
+
+    A constant column collapses to a degenerate 1-bin histogram whose count is
+    the non-null total (edges still satisfy len == counts + 1, monotone)."""
+    if nonnull == 0:
+        return None
+    mn, mx = cur.execute(f"SELECT min({expr}), max({expr}) FROM {base}", params).fetchone()
+    if mn is None or mx is None:
+        return None
+    mn, mx = float(mn), float(mx)
+    if mn == mx:
+        return ColumnHistogram(bin_edges=[mn, mn], counts=[nonnull], is_length=is_length)
+    width = (mx - mn) / _HISTOGRAM_BINS
+    # Clamp the bin index into [0, bins-1] so the max value lands in the last
+    # bin (its raw index would be `bins`); every non-null value is covered, so
+    # the counts sum to `nonnull`.
+    binned = cur.execute(
+        f"SELECT greatest(0, least({_HISTOGRAM_BINS - 1}, "
+        f"CAST(floor(({expr} - {mn!r}) / {width!r}) AS INTEGER))) AS b, count(*) AS c "
+        f"FROM {base} WHERE {expr} IS NOT NULL GROUP BY b",
+        params,
+    ).fetchall()
+    got = {int(b): int(c) for b, c in binned}
+    counts = [got.get(i, 0) for i in range(_HISTOGRAM_BINS)]
+    edges = [mn + i * width for i in range(_HISTOGRAM_BINS)] + [mx]
+    return ColumnHistogram(bin_edges=edges, counts=counts, is_length=is_length)
+
+
+def _column_stats(cur, base: str, params: list, name: str, duck_type: str, total_rows: int) -> ColumnStats:
+    """Compute one column's distribution with a handful of DuckDB queries."""
+    col = _quote_ident(name)
+    family = _dtype_family(duck_type)
+    nonnull = int(cur.execute(f"SELECT count({col}) FROM {base}", params).fetchone()[0])
+    nulls = total_rows - nonnull
+
+    if family == "numeric":
+        mn, mx, mean, median = cur.execute(
+            f"SELECT min({col}), max({col}), avg({col}), median({col}) FROM {base}", params
+        ).fetchone()
+        distinct = int(cur.execute(f"SELECT count(DISTINCT {col}) FROM {base}", params).fetchone()[0])
+        hist = _equal_width_histogram(cur, base, col, params, nonnull, is_length=False)
+        top, other = (None, 0)
+        # A low-cardinality numeric (e.g. a 0/1 score) reads better as a pie
+        # than a histogram, so hand the frontend both.
+        if distinct <= 12:
+            top, other = _top_values(cur, base, col, params, nonnull)
+        index_like = bool(
+            duck_type.strip().upper() in _INT_TYPES
+            and nulls == 0
+            and nonnull > 0
+            and distinct == nonnull
+            and mn is not None
+            and (float(mx) - float(mn) == nonnull - 1)
+            and (float(mn) == 0 or float(mn) == 1)
+        )
+        return ColumnStats(
+            name=name, dtype="numeric", count=nonnull, nulls=nulls, distinct=distinct,
+            index_like=index_like, min=_f(mn), max=_f(mx), mean=_f(mean), median=_f(median),
+            histogram=hist, top_values=top, other_count=other,
+        )
+
+    if family == "boolean":
+        distinct = int(cur.execute(f"SELECT count(DISTINCT {col}) FROM {base}", params).fetchone()[0])
+        top, other = _top_values(cur, base, col, params, nonnull)
+        return ColumnStats(name=name, dtype="boolean", count=nonnull, nulls=nulls,
+                           distinct=distinct, top_values=top, other_count=other)
+
+    if family == "varchar":
+        distinct = int(cur.execute(f"SELECT count(DISTINCT {col}) FROM {base}", params).fetchone()[0])
+        if distinct <= 50:
+            top, other = _top_values(cur, base, col, params, nonnull)
+            return ColumnStats(name=name, dtype="categorical", count=nonnull, nulls=nulls,
+                               distinct=distinct, top_values=top, other_count=other)
+        hist = _equal_width_histogram(cur, base, f"length({col})", params, nonnull, is_length=True)
+        return ColumnStats(name=name, dtype="text", count=nonnull, nulls=nulls,
+                           distinct=distinct, histogram=hist)
+
+    if family == "list":
+        hist = _equal_width_histogram(cur, base, f"len({col})", params, nonnull, is_length=True)
+        return ColumnStats(name=name, dtype="list", count=nonnull, nulls=nulls,
+                           distinct=_safe_distinct(cur, base, col, params), histogram=hist)
+
+    if family == "struct":
+        return ColumnStats(name=name, dtype="struct", count=nonnull, nulls=nulls, distinct=None)
+
+    # other (dates, uuids, …): counts/nulls, plus top-values when countable.
+    distinct = _safe_distinct(cur, base, col, params)
+    top, other = (None, 0)
+    if distinct is not None and distinct <= 50:
+        top, other = _top_values(cur, base, col, params, nonnull)
+    return ColumnStats(name=name, dtype="other", count=nonnull, nulls=nulls,
+                       distinct=distinct, top_values=top, other_count=other)
+
+
+@router.get("/stats", response_model=StatsResponse)
+def dataset_stats(
+    path: str,
+    filter_regex: str | None = None,
+    filter_column: str | None = None,
+    shuffle_seed: int | None = None,
+    sort_column: str | None = None,
+    sort_desc: bool = False,
+) -> StatsResponse:
+    """Per-column distributions over the visible rows.
+
+    Composes with the active regex filter and SQL selection exactly like
+    `/groups` (same params, same BUS plumbing). Markdown files are rejected;
+    `.eval` works automatically via `query_path`. The synthetic `__idx` column
+    is dropped."""
+    p = safe_path(path)
+    if p.suffix.lower() in MARKDOWN_SUFFIXES:
+        raise HTTPException(400, "stats are not available for markdown files")
+    sql_selection: list[int] | None = None
+    if (
+        BUS.state.sql_mode == "selection"
+        and BUS.state.sql_selection is not None
+        and BUS.state.dataset_path == path
+    ):
+        sql_selection = BUS.state.sql_selection
+    inner, params = _build_rows_query(
+        p, filter_regex, filter_column, shuffle_seed, sort_column, sort_desc, sql_selection,
+    )
+    base = f"({inner}) sub"
+    columns: list[ColumnStats] = []
+    with cursor() as cur:
+        described = cur.execute(f"DESCRIBE SELECT * FROM {base}", params).fetchall()
+        total_rows = int(cur.execute(f"SELECT count(*) FROM {base}", params).fetchone()[0])
+        for row in described:
+            name, dtype = row[0], row[1]
+            if name == "__idx":
+                continue
+            columns.append(_column_stats(cur, base, params, name, dtype, total_rows))
+    return StatsResponse(path=path, total_rows=total_rows, columns=columns)
 
 
 @router.get("/sample", response_model=RowPage)

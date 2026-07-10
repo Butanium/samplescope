@@ -232,6 +232,40 @@ def cmd_info(path: str) -> None:
     _print_json(info)
 
 
+@view_app.command("stats")
+def cmd_stats(
+    path: Optional[str] = typer.Argument(None, help="defaults to the open dataset"),
+) -> None:
+    """Per-column distribution breakdown (dtype, nulls, min/max, top values)."""
+    p = _resolve_path(path)
+    data = _get("/api/datasets/stats", params={"path": p})
+    cols = data.get("columns", [])
+    rows = [
+        {
+            "name": c["name"],
+            "dtype": c["dtype"],
+            "count": c["count"],
+            "nulls": c["nulls"],
+            "distinct": c.get("distinct"),
+            "index_like": c.get("index_like"),
+            "min": c.get("min"),
+            "max": c.get("max"),
+            "mean": c.get("mean"),
+        }
+        for c in cols
+    ]
+    print(f"path={p}  total_rows={data.get('total_rows')}")
+    _print_table(rows, ["name", "dtype", "count", "nulls", "distinct", "index_like", "min", "max", "mean"])
+    for c in cols:
+        tv = c.get("top_values")
+        if not tv:
+            continue
+        parts = ", ".join(f"{t['value']}×{t['count']}" for t in tv)
+        other = c.get("other_count") or 0
+        suffix = f" (+{other} other)" if other else ""
+        print(f"\n{c['name']}: {parts}{suffix}")
+
+
 # ---------- Navigation ----------
 
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "../../lib/utils";
 import PreOrMarkdown from "../PreOrMarkdown";
@@ -54,15 +54,7 @@ export function ValueNode({ value, ctx }: { value: Json; ctx: NodeCtx }) {
   if (typeof value === "string") {
     if (value === "")
       return <span className="text-xs italic text-zinc-400 dark:text-zinc-600">(empty string)</span>;
-    return (
-      <Collapsible lines={14}>
-        <PreOrMarkdown
-          text={value}
-          mode={ctx.markdown ? "markdown" : "pre"}
-          highlightCtx={{ row: ctx.ctxRow }}
-        />
-      </Collapsible>
-    );
+    return <StringLeaf text={value} ctx={ctx} />;
   }
 
   if (typeof value === "number" || typeof value === "boolean")
@@ -114,6 +106,54 @@ export function ValueNode({ value, ctx }: { value: Json; ctx: NodeCtx }) {
       )}
     </div>
   );
+}
+
+/**
+ * A string leaf. When the string holds an embedded JSON object/array, render
+ * the parsed structure (marked with a muted "json" badge) instead of flat text
+ * — copy still yields the ORIGINAL string, and the parse is memoized so
+ * scrolling doesn't re-parse. Otherwise the usual collapsible text render.
+ */
+function StringLeaf({ text, ctx }: { text: string; ctx: NodeCtx }) {
+  const parsed = useMemo(() => tryParseJsonContainer(text), [text]);
+  if (parsed !== undefined) {
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-[9px] uppercase tracking-wider rounded px-1 py-px border border-zinc-200 dark:border-zinc-800 text-zinc-400 dark:text-zinc-600">
+            json
+          </span>
+          <CopyButton variant="plain" value={text} title="copy the original JSON string" />
+        </div>
+        <ValueNode value={parsed} ctx={ctx} />
+      </div>
+    );
+  }
+  return (
+    <Collapsible lines={14}>
+      <PreOrMarkdown
+        text={text}
+        mode={ctx.markdown ? "markdown" : "pre"}
+        highlightCtx={{ row: ctx.ctxRow }}
+      />
+    </Collapsible>
+  );
+}
+
+/** Parse a string that *looks* like embedded JSON; `undefined` unless it yields
+ *  an object/array (so the caller silently falls back to plain-string render). */
+function tryParseJsonContainer(s: string): Json | undefined {
+  if (s.length > 512_000) return undefined;
+  const t = s.trim();
+  const c = t[0];
+  if (c !== "{" && c !== "[") return undefined;
+  try {
+    const parsed = JSON.parse(t);
+    if (parsed !== null && typeof parsed === "object") return parsed;
+  } catch {
+    // Not valid JSON — render as an ordinary string.
+  }
+  return undefined;
 }
 
 /**

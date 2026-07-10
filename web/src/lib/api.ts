@@ -1,6 +1,6 @@
 import type {
   DatasetEntry, DatasetInfo, RowPage, MarkRecord, JudgePreset, JudgeResult,
-  JudgeSettings, ViewerState, HighlightRule, PlotTab, GroupsResponse,
+  JudgeSettings, ViewerState, HighlightRule, PlotTab, GroupsResponse, StatsResponse,
 } from "./types";
 
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
@@ -49,6 +49,21 @@ export const api = {
     if (q.sort_column) p.set("sort_column", q.sort_column);
     if (q.sort_desc) p.set("sort_desc", "true");
     return j<GroupsResponse>(`/api/datasets/groups?${p}`);
+  },
+  stats: (q: {
+    path: string;
+    filter_regex?: string | null; filter_column?: string | null;
+    shuffle_seed?: number | null;
+    sort_column?: string | null; sort_desc?: boolean;
+  }) => {
+    const p = new URLSearchParams();
+    p.set("path", q.path);
+    if (q.filter_regex) p.set("filter_regex", q.filter_regex);
+    if (q.filter_column) p.set("filter_column", q.filter_column);
+    if (q.shuffle_seed != null) p.set("shuffle_seed", String(q.shuffle_seed));
+    if (q.sort_column) p.set("sort_column", q.sort_column);
+    if (q.sort_desc) p.set("sort_desc", "true");
+    return j<StatsResponse>(`/api/datasets/stats?${p}`);
   },
   sample: (path: string, n: number) =>
     j<RowPage>(`/api/datasets/sample?path=${encodeURIComponent(path)}&n=${n}`),
