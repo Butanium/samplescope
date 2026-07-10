@@ -216,16 +216,74 @@ def test_tree_recent_and_only_opened(page: Page, server: str):
         setpref("tree.recentOpen", False)
 
 
-def test_regex_filter_narrows_rows(page: Page, server: str):
+def test_filter_chip_narrows_rows(page: Page, server: str):
     page.goto(server)
     open_file(page, "chat.jsonl")
     expect(page.get_by_text("question 0", exact=True)).to_be_visible()
-    # `/` focuses the regex filter input.
+    # `/` focuses the filter text input; Enter appends a chip (text mode, any col).
     page.keyboard.press("/")
     page.keyboard.type("question 7")
     page.keyboard.press("Enter")
+    # A chip now carries the filter (≈ = text mode, no column prefix).
+    expect(page.get_by_text("≈ question 7", exact=True)).to_be_visible()
     expect(page.get_by_text("question 7", exact=True)).to_be_visible()
     expect(page.get_by_text("question 0", exact=True)).not_to_be_visible()
+    # Removing the chip widens back to the full feed.
+    page.get_by_title(re.compile(r"remove filter · ≈ question 7")).click()
+    expect(page.get_by_text("question 0", exact=True)).to_be_visible()
+
+
+def test_filter_chips_and_compose(page: Page, server: str):
+    # wide_text.csv: category cycles alpha/beta/gamma; question is long_q on even
+    # rows, "short question N" on odd. category=alpha → rows 0,3,6,9 (4). AND
+    # question≈short → odd rows among those → 3,9 (2). Remove → back to 4.
+    page.goto(f"{server}/?path={quote('wide_text.csv')}")
+    main = page.get_by_role("main")
+    expect(main.get_by_text(re.compile(r"showing 12 of 12"))).to_be_visible()
+    # Chip 1: column=category (dropdown), text "alpha".
+    main.get_by_title(re.compile(r"filter column")).select_option("category")
+    main.locator("#filter-input").fill("alpha")
+    main.locator("#filter-input").press("Enter")
+    expect(main.get_by_text(re.compile(r"showing 4 of 4"))).to_be_visible()
+    expect(main.get_by_text("category ≈ alpha", exact=True)).to_be_visible()
+    # Chip 2: text "short" on the `question` column → AND-narrows to 2 (rows 3,9;
+    # rows 0,6 have the long question). Scoped to `question` so the "short
+    # answer N" cells don't also match.
+    main.get_by_title(re.compile(r"filter column")).select_option("question")
+    main.locator("#filter-input").fill("short")
+    main.locator("#filter-input").press("Enter")
+    expect(main.get_by_text(re.compile(r"showing 2 of 2"))).to_be_visible()
+    # Remove the question chip → widens back to the 4 alpha rows.
+    main.get_by_title(re.compile(r"remove filter · question ≈ short")).click()
+    expect(main.get_by_text(re.compile(r"showing 4 of 4"))).to_be_visible()
+
+
+def test_legacy_filter_deeplink_migrates(page: Page, server: str):
+    # Old single-filter deep link (q + qcol) still filters, and the mirror
+    # rewrites it onto the canonical `filters=` param.
+    page.goto(f"{server}/?path={quote('wide_text.csv')}&q=alpha&qcol=category")
+    main = page.get_by_role("main")
+    expect(main.get_by_text(re.compile(r"showing 4 of 4"))).to_be_visible()
+    # The migrated chip is present (text mode, since qmode was absent)…
+    expect(main.get_by_text("category ≈ alpha", exact=True)).to_be_visible()
+    # …and the URL has gained `filters=`, with the legacy q/qcol dropped.
+    expect(page).to_have_url(re.compile(r"filters="))
+    assert "q=alpha" not in page.url and "qcol=" not in page.url
+
+
+def test_stats_click_to_filter_toggles(page: Page, server: str):
+    page.goto(f"{server}/?path={quote('wide_text.csv')}&view=stats")
+    main = page.get_by_role("main")
+    # Unfiltered stats header first.
+    expect(main.get_by_text(re.compile(r"12\s*rows"))).to_be_visible()
+    # Click the "alpha" legend row in the category donut → exact chip + filtered.
+    main.get_by_text("alpha", exact=True).click()
+    expect(main.get_by_text("category = alpha", exact=True)).to_be_visible()
+    expect(main.get_by_text(re.compile(r"\(filtered\)"))).to_be_visible()
+    # Clicking "alpha" again toggles the identical exact filter back off.
+    main.get_by_text("alpha", exact=True).click()
+    expect(main.get_by_text("category = alpha", exact=True)).to_have_count(0)
+    expect(main.get_by_text(re.compile(r"\(filtered\)"))).to_have_count(0)
 
 
 # ── wide-CSV view modes (samples/table/stats) + JSON-string expansion ─────────

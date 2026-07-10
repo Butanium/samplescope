@@ -1,7 +1,14 @@
 import type {
   DatasetEntry, DatasetInfo, RowPage, MarkRecord, JudgePreset, JudgeResult,
   JudgeSettings, ViewerState, HighlightRule, PlotTab, GroupsResponse, StatsResponse,
+  FilterSpec,
 } from "./types";
+
+/** JSON-encode a compiled filter list into the `filters` query param (omitted
+ *  when empty). Shared by the rows/groups/stats read endpoints. */
+function setFiltersParam(p: URLSearchParams, filters?: FilterSpec[] | null): void {
+  if (filters && filters.length) p.set("filters", JSON.stringify(filters));
+}
 
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(path, { ...init, headers: { "content-type": "application/json", ...(init?.headers || {}) } });
@@ -17,7 +24,7 @@ export const api = {
     j<DatasetInfo>(`/api/datasets/info?path=${encodeURIComponent(path)}`),
   rows: (q: {
     path: string; offset?: number; limit?: number;
-    filter_regex?: string | null; filter_column?: string | null;
+    filters?: FilterSpec[] | null;
     shuffle_seed?: number | null;
     sort_column?: string | null; sort_desc?: boolean;
   }) => {
@@ -25,8 +32,7 @@ export const api = {
     p.set("path", q.path);
     if (q.offset != null) p.set("offset", String(q.offset));
     if (q.limit != null) p.set("limit", String(q.limit));
-    if (q.filter_regex) p.set("filter_regex", q.filter_regex);
-    if (q.filter_column) p.set("filter_column", q.filter_column);
+    setFiltersParam(p, q.filters);
     if (q.shuffle_seed != null) p.set("shuffle_seed", String(q.shuffle_seed));
     if (q.sort_column) p.set("sort_column", q.sort_column);
     if (q.sort_desc) p.set("sort_desc", "true");
@@ -36,15 +42,14 @@ export const api = {
     j<Record<string, any>>(`/api/datasets/row?path=${encodeURIComponent(path)}&idx=${idx}`),
   groups: (q: {
     path: string; column: string;
-    filter_regex?: string | null; filter_column?: string | null;
+    filters?: FilterSpec[] | null;
     shuffle_seed?: number | null;
     sort_column?: string | null; sort_desc?: boolean;
   }) => {
     const p = new URLSearchParams();
     p.set("path", q.path);
     p.set("column", q.column);
-    if (q.filter_regex) p.set("filter_regex", q.filter_regex);
-    if (q.filter_column) p.set("filter_column", q.filter_column);
+    setFiltersParam(p, q.filters);
     if (q.shuffle_seed != null) p.set("shuffle_seed", String(q.shuffle_seed));
     if (q.sort_column) p.set("sort_column", q.sort_column);
     if (q.sort_desc) p.set("sort_desc", "true");
@@ -52,14 +57,13 @@ export const api = {
   },
   stats: (q: {
     path: string;
-    filter_regex?: string | null; filter_column?: string | null;
+    filters?: FilterSpec[] | null;
     shuffle_seed?: number | null;
     sort_column?: string | null; sort_desc?: boolean;
   }) => {
     const p = new URLSearchParams();
     p.set("path", q.path);
-    if (q.filter_regex) p.set("filter_regex", q.filter_regex);
-    if (q.filter_column) p.set("filter_column", q.filter_column);
+    setFiltersParam(p, q.filters);
     if (q.shuffle_seed != null) p.set("shuffle_seed", String(q.shuffle_seed));
     if (q.sort_column) p.set("sort_column", q.sort_column);
     if (q.sort_desc) p.set("sort_desc", "true");
@@ -71,8 +75,8 @@ export const api = {
     j<DatasetInfo>("/api/datasets/open", { method: "POST", body: JSON.stringify({ path }) }),
   goto: (idx: number) =>
     j<unknown>("/api/datasets/goto", { method: "POST", body: JSON.stringify({ idx }) }),
-  setFilter: (regex: string | null, column: string | null) =>
-    j<unknown>("/api/datasets/filter", { method: "POST", body: JSON.stringify({ regex, column }) }),
+  setFilters: (filters: FilterSpec[]) =>
+    j<unknown>("/api/datasets/filter", { method: "POST", body: JSON.stringify({ filters }) }),
   shuffle: (seed?: number) =>
     j<{ seed: number }>("/api/datasets/shuffle", { method: "POST", body: JSON.stringify({ seed }) }),
   setSort: (column: string | null, desc = false) =>

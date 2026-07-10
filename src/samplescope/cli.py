@@ -309,15 +309,43 @@ def cmd_filter(
     regex: str,
     column: Optional[str] = typer.Option(None, "--column", help="restrict to one column; omit for whole-row"),
 ) -> None:
-    """Apply a regex filter to the open dataset."""
-    out = _post("/api/datasets/filter", {"regex": regex, "column": column})
+    """Add a regex filter to the open dataset (AND-composed with existing ones)."""
+    st = _state()
+    filters = list(st.get("filters") or [])
+    filters.append({"column": column, "regex": regex})
+    out = _post("/api/datasets/filter", {"filters": filters})
+    _print_json(out)
+
+
+@view_app.command("filters")
+def cmd_filters() -> None:
+    """List the active filters (index, column, regex)."""
+    st = _state()
+    filters = st.get("filters") or []
+    rows = [
+        {"idx": i, "column": f.get("column") or "(whole row)", "regex": f.get("regex")}
+        for i, f in enumerate(filters)
+    ]
+    _print_table(rows, ["idx", "column", "regex"])
+    print(f"\n{len(rows)} filter(s)")
+
+
+@view_app.command("rm-filter")
+def cmd_rm_filter(idx: int) -> None:
+    """Remove the filter at index `idx` (see `sscope view filters`)."""
+    st = _state()
+    filters = list(st.get("filters") or [])
+    if idx < 0 or idx >= len(filters):
+        _die(f"no filter at index {idx}; {len(filters)} active")
+    filters.pop(idx)
+    out = _post("/api/datasets/filter", {"filters": filters})
     _print_json(out)
 
 
 @view_app.command("clear-filter")
 def cmd_clear_filter() -> None:
-    """Remove any active regex filter."""
-    out = _post("/api/datasets/filter", {"regex": None, "column": None})
+    """Clear all active filters."""
+    out = _post("/api/datasets/filter", {"filters": []})
     _print_json(out)
 
 

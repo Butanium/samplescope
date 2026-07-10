@@ -1,6 +1,8 @@
 """API integration tests against a live server (see conftest.server)."""
 from __future__ import annotations
 
+import json
+
 import httpx
 
 
@@ -70,6 +72,74 @@ def test_regex_filter(server: str):
         params={"path": path, "filter_regex": "odd", "filter_column": "label", "limit": 50},
     ).json()
     assert page["total_filtered"] == 10
+
+
+def test_multi_filter_and_composes(server: str):
+    """Two filters in the `filters` JSON param AND-compose: category=^alpha$ AND
+    question~short → strictly fewer rows than either alone."""
+    path = _path_of(server, "wide_text.csv")
+    both = json.dumps([
+        {"column": "category", "regex": "^alpha$"},
+        {"column": "question", "regex": "short"},
+    ])
+    page = httpx.get(
+        f"{server}/api/datasets/rows", params={"path": path, "filters": both, "limit": 50}
+    ).json()
+    # alpha rows are i=0,3,6,9; "short question {i}" only on odd i → 3 & 9.
+    assert page["total_filtered"] == 2
+    assert page["indices"] == [3, 9]
+
+    alpha = httpx.get(
+        f"{server}/api/datasets/rows",
+        params={"path": path, "filters": json.dumps([{"column": "category", "regex": "^alpha$"}]), "limit": 50},
+    ).json()
+    short = httpx.get(
+        f"{server}/api/datasets/rows",
+        params={"path": path, "filters": json.dumps([{"column": "question", "regex": "short"}]), "limit": 50},
+    ).json()
+    assert alpha["total_filtered"] == 4
+    assert short["total_filtered"] == 6
+    assert page["total_filtered"] < alpha["total_filtered"]
+    assert page["total_filtered"] < short["total_filtered"]
+
+
+def test_filters_param_composes_on_stats_and_groups(server: str):
+    """`/stats` and `/groups` accept the same `filters` JSON param and shrink."""
+    csv_path = _path_of(server, "wide_text.csv")
+    st = httpx.get(
+        f"{server}/api/datasets/stats",
+        params={"path": csv_path, "filters": json.dumps([{"column": "category", "regex": "^alpha$"}])},
+    ).json()
+    assert st["total_rows"] == 4
+
+    chat = _path_of(server, "chat.jsonl")
+    g = httpx.get(
+        f"{server}/api/datasets/groups",
+        params={"path": chat, "column": "label", "filters": json.dumps([{"regex": "question 1[0-9]"}])},
+    ).json()
+    assert {b["value"]: b["indices"] for b in g["groups"]} == {
+        "even": [10, 12, 14, 16, 18],
+        "odd": [11, 13, 15, 17, 19],
+    }
+
+
+def test_filter_post_roundtrip(server: str):
+    """POST /filter replaces the list; state serializes `filters`, not `filter_regex`."""
+    r = httpx.post(
+        f"{server}/api/datasets/filter",
+        json={"filters": [{"column": "label", "regex": "odd"}, {"regex": "question"}]},
+    )
+    assert r.status_code == 200, r.text
+    st = httpx.get(f"{server}/api/state").json()
+    assert "filter_regex" not in st
+    assert "filter_column" not in st
+    assert st["filters"] == [
+        {"column": "label", "regex": "odd"},
+        {"column": None, "regex": "question"},
+    ]
+    # Empty list clears.
+    httpx.post(f"{server}/api/datasets/filter", json={"filters": []})
+    assert httpx.get(f"{server}/api/state").json()["filters"] == []
 
 
 def test_group_by_buckets_in_visible_order(server: str):
@@ -201,6 +271,14 @@ def test_stats_wide_text_csv(server: str):
     assert {t["value"] for t in cat["top_values"]} == {"alpha", "beta", "gamma"}
     assert sum(t["count"] for t in cat["top_values"]) == 12
     assert cat["other_count"] == 0
+
+    # `question`/`answer` are long free-text: low distinct (12 rows) must NOT
+    # make them categorical — value-length beats cardinality for text.
+    for name in ("question", "answer"):
+        c = cols[name]
+        assert c["dtype"] == "text", name
+        assert c["top_values"] is None, name
+        assert c["histogram"]["is_length"] is True, name
 
 
 def test_stats_composes_with_filter(server: str):

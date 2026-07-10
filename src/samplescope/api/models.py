@@ -26,6 +26,19 @@ class DatasetInfo(BaseModel):
     detect_meta: dict[str, Any] = {}
 
 
+class FilterSpec(BaseModel):
+    """One regex filter. ``column=None`` matches anywhere in the row (to_json);
+    otherwise the regex is applied to that column CAST to VARCHAR."""
+    column: str | None = None
+    regex: str
+
+
+class FilterUpdate(BaseModel):
+    """Full-replace payload for ``POST /api/datasets/filter``. An empty list
+    clears all filters. The active list is AND-composed on every read."""
+    filters: list[FilterSpec] = []
+
+
 class RowPage(BaseModel):
     """Paged window into a JSONL file."""
     rows: list[dict[str, Any]]

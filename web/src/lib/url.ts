@@ -1,7 +1,7 @@
 // URL ⇄ ViewerState sync. The URL is the bookmarkable representation of:
 //   - which dataset is open (`path=<encoded>`)
 //   - the current row idx                       (`idx=<n>`)
-//   - the active filter                         (`q=...`, `qcol=...`, `qmode=text|regex`)
+//   - the active filter list                    (`filters=<json>`; legacy `q`/`qcol`/`qmode`)
 //   - the shuffle seed                          (`shuffle=<n>`)
 //   - the visible drawer                        (`drawer=chat|marks|judges|sql|help|highlights`)
 //   - the chat session id                       (`session=<id>`)
@@ -19,18 +19,27 @@ import { useCallback, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "./api";
 import { useViewerState } from "./state";
+import type { FilterSpec } from "./types";
 
 export type DrawerKey = "none" | "chat" | "marks" | "judges" | "sql" | "help" | "highlights" | "plots";
 export type ViewMode = "list" | "single";
 /** Render-mode override for the multi-view datasets (null = detected default). */
 export type RenderView = "samples" | "table" | "plot" | "stats";
 
+/**
+ * How a filter's raw text is interpreted. The URL keeps this "pretty" form so a
+ * user-typed literal round-trips without leaking its escaped regex, and the
+ * stats view can author `exact` chips. `compileTriple` lowers it to the single
+ * `{column, regex}` the server understands.
+ */
+export type FilterMode = "text" | "regex" | "exact";
+/** URL/UI representation of one filter: `[column|null, rawText, mode]`. */
+export type FilterTriple = [string | null, string, FilterMode];
+
 export type UrlState = {
   path: string | null;
   idx: number;
-  filterText: string | null;
-  filterColumn: string | null;
-  filterIsRegex: boolean;
+  filters: FilterTriple[];
   shuffleSeed: number | null;
   sortColumn: string | null;
   sortDesc: boolean;
@@ -53,9 +62,7 @@ export function readUrl(params: URLSearchParams): UrlState {
   return {
     path: get("path") || null,
     idx: parseInt(get("idx") || "0", 10) || 0,
-    filterText: get("q") || null,
-    filterColumn: get("qcol") || null,
-    filterIsRegex: get("qmode") === "regex",
+    filters: readFilters(params),
     shuffleSeed: get("shuffle") ? parseInt(get("shuffle")!, 10) : null,
     sortColumn: get("sort") || null,
     sortDesc: get("sortdir") === "desc",
@@ -73,6 +80,67 @@ export function readUrl(params: URLSearchParams): UrlState {
 /** Escape user input so it works as a literal substring inside a regex. */
 export function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isFilterTriple(t: unknown): t is FilterTriple {
+  return (
+    Array.isArray(t) &&
+    t.length === 3 &&
+    (t[0] === null || typeof t[0] === "string") &&
+    typeof t[1] === "string" &&
+    (t[2] === "text" || t[2] === "regex" || t[2] === "exact")
+  );
+}
+
+/**
+ * Read the active filter list from the URL. Prefers the canonical `filters`
+ * param (a JSON array of `[column, text, mode]` triples); when it's absent,
+ * migrates a legacy single filter (`q` + optional `qcol`/`qmode`) into a
+ * one-triple list so old deep links keep working. A malformed `filters` param
+ * degrades to no filter rather than crashing the app (URLs are hand-editable).
+ */
+export function readFilters(params: URLSearchParams): FilterTriple[] {
+  const raw = params.get("filters");
+  if (raw != null) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.filter(isFilterTriple);
+    } catch {
+      /* malformed filters param → treat as no filter */
+    }
+    return [];
+  }
+  const q = params.get("q");
+  if (q) {
+    const col = params.get("qcol") || null;
+    const mode: FilterMode = params.get("qmode") === "regex" ? "regex" : "text";
+    return [[col, q, mode]];
+  }
+  return [];
+}
+
+/**
+ * Lower one pretty filter triple to the `{column, regex}` the server consumes:
+ * `text` → escaped literal substring, `regex` → verbatim, `exact` → anchored
+ * literal (`^…$`). This is the single compile seam — the server never sees the
+ * text/mode distinction.
+ */
+export function compileTriple([column, text, mode]: FilterTriple): FilterSpec {
+  const regex =
+    mode === "regex" ? text : mode === "exact" ? `^${escapeRegex(text)}$` : escapeRegex(text);
+  return { column, regex };
+}
+
+export function compileFilters(triples: FilterTriple[]): FilterSpec[] {
+  return triples.map(compileTriple);
+}
+
+/** Order-sensitive equality of two compiled filter lists (column + regex). */
+function compiledFiltersEqual(a: FilterSpec[], b: FilterSpec[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((f, i) => (f.column ?? null) === (b[i].column ?? null) && f.regex === b[i].regex)
+  );
 }
 
 /** Read the URL state plus get setters that mutate URL params. No effects. */
@@ -134,20 +202,25 @@ export function useUrlSync() {
     }, { replace: true });
   }, [setParams]);
 
-  /** Apply a filter atomically: writes URL params + posts to the API. */
-  const setFilter = useCallback(async (text: string | null, column: string | null, isRegex: boolean) => {
+  /**
+   * Replace the whole active filter list atomically: writes the canonical
+   * `filters` URL param (dropping any legacy `q`/`qcol`/`qmode`) and posts the
+   * compiled list to the API. Empty list clears the filter.
+   */
+  const setFilters = useCallback(async (filters: FilterTriple[]) => {
     setParams((prev) => {
       const next = new URLSearchParams(prev);
-      if (text) next.set("q", text); else next.delete("q");
-      if (column) next.set("qcol", column); else next.delete("qcol");
-      if (isRegex) next.set("qmode", "regex"); else next.delete("qmode");
+      if (filters.length) next.set("filters", JSON.stringify(filters));
+      else next.delete("filters");
+      next.delete("q");
+      next.delete("qcol");
+      next.delete("qmode");
       return next;
     }, { replace: true });
-    const regex = text ? (isRegex ? text : escapeRegex(text)) : null;
-    await api.setFilter(regex, column);
+    await api.setFilters(compileFilters(filters));
   }, [setParams]);
 
-  return { url, setDrawer, setSession, setViewMode, setView, setRaw, setGroupBy, setFilter };
+  return { url, setDrawer, setSession, setViewMode, setView, setRaw, setGroupBy, setFilters };
 }
 
 /**
@@ -160,7 +233,16 @@ export function UrlSyncBridge() {
   const v = useViewerState();
   const [params, setParams] = useSearchParams();
   const initialized = useRef(false);
+  // Set once the mount reconciliation below has pushed the URL's filter into
+  // state. Until then the mirror must NOT touch the filter params: on first
+  // render state is still empty, so a URL filter would look like a divergence
+  // and get wiped — losing the pretty text/exact mode (state only carries the
+  // compiled regex) and, for a legacy `q` link, dropping it before it applies.
+  const mountSynced = useRef(false);
   const prevPath = useRef<string | null>(null);
+  // Stable serialization for the mirror effect's dep array (v.filters is a fresh
+  // array reference on every SSE patch, even when its contents are unchanged).
+  const filtersKey = JSON.stringify(v.filters ?? []);
 
   useEffect(() => {
     if (initialized.current) return;
@@ -170,11 +252,8 @@ export function UrlSyncBridge() {
       if (url.path && url.path !== v.dataset_path) {
         await api.openDataset(url.path);
       }
-      const wantedRegex = url.filterText
-        ? (url.filterIsRegex ? url.filterText : escapeRegex(url.filterText))
-        : null;
       // Always issue the call so the API's persistent state matches the URL.
-      await api.setFilter(wantedRegex, url.filterColumn);
+      await api.setFilters(compileFilters(url.filters));
       // Sort and shuffle are mutex; URL is the tie-breaker if both are set.
       if (url.sortColumn) {
         await api.setSort(url.sortColumn, url.sortDesc);
@@ -189,6 +268,8 @@ export function UrlSyncBridge() {
       if (url.idx && url.idx !== v.row_idx) {
         await api.goto(url.idx);
       }
+      // URL→state is now applied; the mirror may reconcile the filter params.
+      mountSynced.current = true;
     })();
   // Mount-only by design.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -218,33 +299,50 @@ export function UrlSyncBridge() {
       setOrDel("sql", v.sql_mode !== "off" ? v.sql_query : null);
       setOrDel("sqlmode", v.sql_mode !== "off" ? v.sql_mode : null);
 
-      // Filter: state only carries the compiled `filter_regex`, while the URL
-      // keeps the user's original text + literal/regex mode. So only rewrite the
-      // filter params when the URL doesn't already compile to the active filter
-      // — that preserves a user-typed literal (which would otherwise leak its
-      // escaped form into `q` and flip `qmode` to regex), while still mirroring
-      // an agent-set filter (no prior `q`) as a regex.
-      const urlText = next.get("q");
-      const urlCol = next.get("qcol") || null;
-      const urlRegex = urlText ? (next.get("qmode") === "regex" ? urlText : escapeRegex(urlText)) : null;
-      const stateRegex = v.filter_regex || null;
-      const stateCol = v.filter_column || null;
-      if (urlRegex !== stateRegex || urlCol !== stateCol) {
-        if (stateRegex) {
-          next.set("q", stateRegex);
-          next.set("qmode", "regex");
+      // Filter: state carries the compiled `{column, regex}` list, while the URL
+      // keeps the prettier `[column, text, mode]` triples. So only rewrite when
+      // the URL's triples no longer compile to the active filter — that
+      // preserves a user-typed literal / regex / exact form (which would
+      // otherwise leak its escaped regex), while still mirroring an agent-set
+      // filter (set via CLI, no matching URL) as verbatim regex triples. A
+      // legacy `q`-based URL is migrated to `filters` even when it already
+      // matches, so old deep links converge onto the canonical param. Skipped
+      // until the mount reconciliation has run (see `mountSynced`), so a
+      // deep-linked filter isn't wiped against the initial empty state.
+      const urlFilters = readFilters(next);
+      if (!mountSynced.current) {
+        // Before the mount reconciliation has pushed the URL filter into state,
+        // state is still empty — comparing against it would wipe a deep-linked
+        // filter. So just canonicalize the URL's *own* representation (folding a
+        // legacy `q`/`qcol`/`qmode` link into `filters=`), never consulting
+        // state. Idempotent once the URL is already canonical.
+        if (urlFilters.length) next.set("filters", JSON.stringify(urlFilters));
+        else next.delete("filters");
+        next.delete("q");
+        next.delete("qcol");
+        next.delete("qmode");
+      } else {
+        const stateFilters = v.filters ?? [];
+        if (compiledFiltersEqual(compileFilters(urlFilters), stateFilters)) {
+          // URL already compiles to the active filter — leave its pretty triples
+          // (a user-typed literal / regex / exact form the state can't recover).
         } else {
+          // State diverged (e.g. the chat agent set filters via CLI) — rewrite
+          // from state as verbatim regex triples.
+          const triples: FilterTriple[] = stateFilters.map((f) => [f.column ?? null, f.regex, "regex"]);
+          if (triples.length) next.set("filters", JSON.stringify(triples));
+          else next.delete("filters");
           next.delete("q");
+          next.delete("qcol");
           next.delete("qmode");
         }
-        setOrDel("qcol", stateCol);
       }
 
       if (next.toString() !== prev.toString()) return next;
       return prev;
     }, { replace: true });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [v.dataset_path, v.row_idx, v.shuffle_seed, v.sort_column, v.sort_desc, v.sql_query, v.sql_mode, v.filter_regex, v.filter_column]);
+  }, [v.dataset_path, v.row_idx, v.shuffle_seed, v.sort_column, v.sort_desc, v.sql_query, v.sql_mode, filtersKey]);
 
   return null;
 }

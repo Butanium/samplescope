@@ -23,6 +23,8 @@ from ..models import (
     ColumnStats,
     DatasetEntry,
     DatasetInfo,
+    FilterSpec,
+    FilterUpdate,
     GroupBucket,
     GroupsResponse,
     RowPage,
@@ -203,10 +205,39 @@ def dataset_info(path: str) -> DatasetInfo:
     )
 
 
-def _build_rows_query(
-    path: Path,
+def _parse_filters(
+    filters: str | None,
     filter_regex: str | None,
     filter_column: str | None,
+) -> list[FilterSpec]:
+    """Resolve the read-endpoint filter params into an AND-composed spec list.
+
+    `filters` is a JSON-encoded `[{column, regex}, ...]` (the current wire
+    shape). The legacy `filter_regex`/`filter_column` pair is still honored —
+    when present it appends one more spec — so old callers and
+    `sscope view rows --filter` keep working unchanged.
+    """
+    out: list[FilterSpec] = []
+    if filters:
+        try:
+            raw = json.loads(filters)
+        except json.JSONDecodeError as e:
+            raise HTTPException(400, f"invalid filters JSON: {e}")
+        if not isinstance(raw, list):
+            raise HTTPException(400, "filters must be a JSON array of {column, regex}")
+        for item in raw:
+            try:
+                out.append(FilterSpec.model_validate(item))
+            except Exception as e:
+                raise HTTPException(400, f"invalid filter spec {item!r}: {e}")
+    if filter_regex:
+        out.append(FilterSpec(column=filter_column or None, regex=filter_regex))
+    return out
+
+
+def _build_rows_query(
+    path: Path,
+    filters: list[FilterSpec],
     shuffle_seed: int | None,
     sort_column: str | None = None,
     sort_desc: bool = False,
@@ -221,23 +252,24 @@ def _build_rows_query(
     Sort vs shuffle: sort wins if both are set. NULLS LAST so a column with
     sparse coverage doesn't bury the populated rows at the top.
 
-    SQL-driven selection composes with the regex filter via intersection —
-    a row must be in the SQL result AND match the regex to be visible. Empty
-    selection (`[]`) is treated as "no selection mode" so a query that
-    returns zero rows doesn't silently empty the view; that case is surfaced
-    via `sql_selection_count` in ViewerState instead.
+    Each filter contributes one `regexp_matches(...)` QUALIFY clause, all
+    AND-composed (a row must match every filter to be visible); params are
+    appended in filter order. SQL-driven selection composes the same way via
+    intersection. Empty selection (`[]`) is treated as "no selection mode" so a
+    query that returns zero rows doesn't silently empty the view; that case is
+    surfaced via `sql_selection_count` in ViewerState instead.
     """
     qp = query_path(path)
     src = _read_source(qp)
     base = f"SELECT t.*, ROW_NUMBER() OVER () - 1 AS __idx FROM {src} t"
     qualify_parts: list[str] = []
     params: list = [str(qp)]
-    if filter_regex:
-        if filter_column:
-            qualify_parts.append(f"regexp_matches(CAST({_quote_ident(filter_column)} AS VARCHAR), ?)")
+    for f in filters:
+        if f.column:
+            qualify_parts.append(f"regexp_matches(CAST({_quote_ident(f.column)} AS VARCHAR), ?)")
         else:
             qualify_parts.append("regexp_matches(to_json(t)::VARCHAR, ?)")
-        params.append(filter_regex)
+        params.append(f.regex)
     if sql_selection:
         # Inline the indices: parameterizing a thousand-element list is
         # rejected by DuckDB's prepared-statement layer in older versions
@@ -265,6 +297,7 @@ def read_rows(
     path: str,
     offset: int = 0,
     limit: int = Query(50, le=10_000),
+    filters: str | None = None,
     filter_regex: str | None = None,
     filter_column: str | None = None,
     shuffle_seed: int | None = None,
@@ -273,6 +306,7 @@ def read_rows(
 ) -> RowPage:
     """Return a window of rows. `__idx` is the original 0-based row index."""
     p = safe_path(path)
+    filter_specs = _parse_filters(filters, filter_regex, filter_column)
     # SQL-driven selection is read from server state (not query params): the
     # list can be many thousands of indices and would balloon URL length. It
     # only applies to the currently-open dataset.
@@ -284,7 +318,7 @@ def read_rows(
     ):
         sql_selection = BUS.state.sql_selection
     sql, params = _build_rows_query(
-        p, filter_regex, filter_column, shuffle_seed, sort_column, sort_desc, sql_selection,
+        p, filter_specs, shuffle_seed, sort_column, sort_desc, sql_selection,
     )
     paged = sql + f" LIMIT {int(limit)} OFFSET {int(offset)}"
     with cursor() as cur:
@@ -342,6 +376,7 @@ def _group_expr(column: str, valid: set[str]) -> str:
 def group_rows(
     path: str,
     column: str,
+    filters: str | None = None,
     filter_regex: str | None = None,
     filter_column: str | None = None,
     shuffle_seed: int | None = None,
@@ -358,6 +393,7 @@ def group_rows(
     the visible order through the grouping projection (a bare subquery wouldn't
     be guaranteed to preserve the inner ORDER BY)."""
     p = safe_path(path)
+    filter_specs = _parse_filters(filters, filter_regex, filter_column)
     sql_selection: list[int] | None = None
     if (
         BUS.state.sql_mode == "selection"
@@ -366,7 +402,7 @@ def group_rows(
     ):
         sql_selection = BUS.state.sql_selection
     inner, params = _build_rows_query(
-        p, filter_regex, filter_column, shuffle_seed, sort_column, sort_desc, sql_selection,
+        p, filter_specs, shuffle_seed, sort_column, sort_desc, sql_selection,
     )
     with cursor() as cur:
         valid = {d[0] for d in cur.execute(inner + " LIMIT 0", params).description}
@@ -527,8 +563,14 @@ def _column_stats(cur, base: str, params: list, name: str, duck_type: str, total
                            distinct=distinct, top_values=top, other_count=other)
 
     if family == "varchar":
-        distinct = int(cur.execute(f"SELECT count(DISTINCT {col}) FROM {base}", params).fetchone()[0])
-        if distinct <= 50:
+        distinct, maxlen = cur.execute(
+            f"SELECT count(DISTINCT {col}), max(length({col})) FROM {base}", params
+        ).fetchone()
+        distinct = int(distinct)
+        # Low cardinality alone doesn't make a column categorical: a 12-row
+        # slice of free-text prompts has distinct == rows, and 1-count bars of
+        # truncated paragraphs are useless. Category-like labels are short.
+        if distinct <= 50 and (maxlen or 0) <= 80:
             top, other = _top_values(cur, base, col, params, nonnull)
             return ColumnStats(name=name, dtype="categorical", count=nonnull, nulls=nulls,
                                distinct=distinct, top_values=top, other_count=other)
@@ -556,6 +598,7 @@ def _column_stats(cur, base: str, params: list, name: str, duck_type: str, total
 @router.get("/stats", response_model=StatsResponse)
 def dataset_stats(
     path: str,
+    filters: str | None = None,
     filter_regex: str | None = None,
     filter_column: str | None = None,
     shuffle_seed: int | None = None,
@@ -571,6 +614,7 @@ def dataset_stats(
     p = safe_path(path)
     if p.suffix.lower() in MARKDOWN_SUFFIXES:
         raise HTTPException(400, "stats are not available for markdown files")
+    filter_specs = _parse_filters(filters, filter_regex, filter_column)
     sql_selection: list[int] | None = None
     if (
         BUS.state.sql_mode == "selection"
@@ -579,7 +623,7 @@ def dataset_stats(
     ):
         sql_selection = BUS.state.sql_selection
     inner, params = _build_rows_query(
-        p, filter_regex, filter_column, shuffle_seed, sort_column, sort_desc, sql_selection,
+        p, filter_specs, shuffle_seed, sort_column, sort_desc, sql_selection,
     )
     base = f"({inner}) sub"
     columns: list[ColumnStats] = []
@@ -672,8 +716,7 @@ async def open_dataset(payload: dict) -> dict:
         numeric_cols=info.detect_meta.get("numeric_cols", []),
         tabular=info.detect_meta.get("tabular", False),
         row_idx=0,
-        filter_regex=None,
-        filter_column=None,
+        filters=[],
         shuffle_seed=None,
         sort_column=None,
         sort_desc=False,
@@ -694,11 +737,9 @@ async def goto_row(payload: dict) -> dict:
 
 
 @router.post("/filter")
-async def set_filter(payload: dict) -> dict:
-    """Apply (or clear) the regex filter and broadcast."""
-    regex = payload.get("regex") or None
-    column = payload.get("column") or None
-    await BUS.publish("set_filter", filter_regex=regex, filter_column=column, row_idx=0)
+async def set_filter(payload: FilterUpdate) -> dict:
+    """Replace the active filter list (empty list clears all) and broadcast."""
+    await BUS.publish("set_filter", filters=list(payload.filters), row_idx=0)
     return {"ok": True}
 
 

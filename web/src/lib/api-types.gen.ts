@@ -257,7 +257,7 @@ export interface paths {
         put?: never;
         /**
          * Set Filter
-         * @description Apply (or clear) the regex filter and broadcast.
+         * @description Replace the active filter list (empty list clears all) and broadcast.
          */
         post: operations["set_filter_api_datasets_filter_post"];
         delete?: never;
@@ -1194,6 +1194,29 @@ export interface components {
             view_kind: "chat" | "table" | "metrics" | "eval_log" | "json" | "markdown";
         };
         /**
+         * FilterSpec
+         * @description One regex filter. ``column=None`` matches anywhere in the row (to_json);
+         *     otherwise the regex is applied to that column CAST to VARCHAR.
+         */
+        FilterSpec: {
+            /** Column */
+            column?: string | null;
+            /** Regex */
+            regex: string;
+        };
+        /**
+         * FilterUpdate
+         * @description Full-replace payload for ``POST /api/datasets/filter``. An empty list
+         *     clears all filters. The active list is AND-composed on every read.
+         */
+        FilterUpdate: {
+            /**
+             * Filters
+             * @default []
+             */
+            filters: components["schemas"]["FilterSpec"][];
+        };
+        /**
          * GroupBucket
          * @description One group: a distinct value of the group-by column + its member row idxs,
          *     in visible order.
@@ -1817,9 +1840,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    [key: string]: unknown;
-                };
+                "application/json": components["schemas"]["FilterUpdate"];
             };
         };
         responses: {
@@ -1887,6 +1908,7 @@ export interface operations {
             query: {
                 path: string;
                 column: string;
+                filters?: string | null;
                 filter_regex?: string | null;
                 filter_column?: string | null;
                 shuffle_seed?: number | null;
@@ -2028,6 +2050,7 @@ export interface operations {
                 path: string;
                 offset?: number;
                 limit?: number;
+                filters?: string | null;
                 filter_regex?: string | null;
                 filter_column?: string | null;
                 shuffle_seed?: number | null;
@@ -2282,6 +2305,7 @@ export interface operations {
         parameters: {
             query: {
                 path: string;
+                filters?: string | null;
                 filter_regex?: string | null;
                 filter_column?: string | null;
                 shuffle_seed?: number | null;

@@ -1,15 +1,22 @@
 import { useState, useEffect } from "react";
 import { api } from "../lib/api";
 import { useViewerState } from "../lib/state";
-import { useUrlSync } from "../lib/url";
+import { useUrlSync, type FilterTriple } from "../lib/url";
 import { nextIdx, prevIdx, setNavGroups } from "../lib/nav";
 import { useGroups } from "../lib/groups";
 import { cn, copyToClipboard } from "../lib/utils";
 import { Shuffle, ChevronLeft, ChevronRight, X, Filter, ArrowUp, ArrowDown, Layers } from "lucide-react";
 
+/** Human-readable label for a filter chip: `col = v` (exact), `col ≈ v` (text),
+ *  `col ~ re` (regex); the column prefix is dropped when it matches any column. */
+function chipLabel([col, text, mode]: FilterTriple): string {
+  const op = mode === "exact" ? "=" : mode === "regex" ? "~" : "≈";
+  return col ? `${col} ${op} ${text}` : `${op} ${text}`;
+}
+
 export default function DatasetHeader() {
   const v = useViewerState();
-  const { url, setFilter, setGroupBy } = useUrlSync();
+  const { url, setFilters, setGroupBy } = useUrlSync();
   // Always mounted, so it's the single place that publishes the grouping into
   // the nav cursor (single-mode j/k between groups, [ ] within). The per-card
   // cyclers in the grouped feed don't go through nav — they hold local state.
@@ -18,33 +25,44 @@ export default function DatasetHeader() {
     setNavGroups(groups.groups ? groups.groups.map((g) => g.indices) : null);
     return () => setNavGroups(null);
   }, [groups.groups]);
-  const [textDraft, setTextDraft] = useState(url.filterText ?? "");
-  const [columnDraft, setColumnDraft] = useState(url.filterColumn ?? "");
-  const [isRegex, setIsRegex] = useState(url.filterIsRegex);
+  // Editor scratch state — independent of the active filter list (the chips).
+  const [textDraft, setTextDraft] = useState("");
+  const [columnDraft, setColumnDraft] = useState("");
+  const [isRegex, setIsRegex] = useState(false);
   const [pathCopied, setPathCopied] = useState(false);
-
-  useEffect(() => { setTextDraft(url.filterText ?? ""); }, [url.filterText]);
-  useEffect(() => { setColumnDraft(url.filterColumn ?? ""); }, [url.filterColumn]);
-  useEffect(() => { setIsRegex(url.filterIsRegex); }, [url.filterIsRegex]);
 
   if (!v.dataset_path) {
     return <div className="h-12 border-b border-zinc-200 dark:border-zinc-800 flex items-center px-3 text-xs text-zinc-500">no dataset open</div>;
   }
   const total = v.row_count;
   const idx = v.row_idx;
+  const filters = url.filters;
 
-  const apply = () => {
-    setFilter(textDraft.trim() || null, columnDraft.trim() || null, isRegex);
-  };
-  const clear = () => {
+  // Append the editor's draft as a new chip (ignoring empty text); keep the
+  // column + mode so several filters on one column are quick to add in a row.
+  const applyDraft = () => {
+    const text = textDraft.trim();
+    if (!text) return;
+    const triple: FilterTriple = [columnDraft || null, text, isRegex ? "regex" : "text"];
+    setFilters([...filters, triple]);
     setTextDraft("");
-    setColumnDraft("");
-    setIsRegex(false);
-    setFilter(null, null, false);
+  };
+  const removeAt = (i: number) => setFilters(filters.filter((_, j) => j !== i));
+  // Clicking a chip's body loads it back into the editor (and removes it) so
+  // re-applying edits it. Exact chips fold into text mode — the editor only
+  // offers text/regex.
+  const editAt = (i: number) => {
+    const [col, text, mode] = filters[i];
+    setColumnDraft(col ?? "");
+    setTextDraft(text);
+    setIsRegex(mode === "regex");
+    setFilters(filters.filter((_, j) => j !== i));
+    document.getElementById("filter-input")?.focus();
   };
 
   return (
-    <header className="h-12 shrink-0 border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-2 px-3 text-xs">
+    <header className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 text-xs">
+    <div className="h-12 flex items-center gap-2 px-3">
       <div className="font-mono truncate flex-1 min-w-0 text-zinc-700 dark:text-zinc-300">
         <span
           role="button"
@@ -121,15 +139,29 @@ export default function DatasetHeader() {
       <GroupControl columns={v.columns} groupBy={groups.groupBy} onChange={setGroupBy} />
       <div className="flex items-center gap-1 border-l border-zinc-200 dark:border-zinc-800 pl-2 ml-1">
         <Filter size={14} className="opacity-60" />
+        <select
+          value={columnDraft}
+          onChange={(e) => setColumnDraft(e.target.value)}
+          title="filter column ((any) = every column)"
+          className={cn(
+            "max-w-[120px] px-1 py-0.5 bg-white dark:bg-zinc-900 border rounded font-mono text-[11px] outline-none focus:border-emerald-600",
+            columnDraft ? "border-emerald-500/60" : "border-zinc-200 dark:border-zinc-800",
+          )}
+        >
+          <option value="">(any)</option>
+          {v.columns.filter((c) => c !== "__idx").map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
         <div className="relative">
           <input
             id="filter-input"
             value={textDraft}
             onChange={(e) => setTextDraft(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && apply()}
+            onKeyDown={(e) => e.key === "Enter" && applyDraft()}
             placeholder={isRegex ? "regex…" : "search…"}
             className={cn(
-              "w-52 pl-1.5 pr-7 py-0.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded outline-none focus:border-emerald-600",
+              "w-48 pl-1.5 pr-7 py-0.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded outline-none focus:border-emerald-600",
               isRegex ? "font-mono" : "font-sans",
             )}
           />
@@ -146,22 +178,45 @@ export default function DatasetHeader() {
             .*
           </button>
         </div>
-        <input
-          value={columnDraft}
-          onChange={(e) => setColumnDraft(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && apply()}
-          placeholder="column"
-          className="w-28 px-1.5 py-0.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded font-mono outline-none focus:border-emerald-600"
-        />
         <button
-          onClick={apply}
+          onClick={applyDraft}
           className="px-2 py-0.5 bg-emerald-700 hover:bg-emerald-600 text-zinc-50 rounded">apply</button>
-        {(url.filterText || url.filterColumn) && (
-          <button onClick={clear} className="p-1 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded" title="clear">
-            <X size={12} />
+      </div>
+    </div>
+    {filters.length > 0 && (
+      <div className="flex flex-wrap items-center gap-1.5 px-3 pb-1.5">
+        {filters.map((f, i) => (
+          <span
+            key={i}
+            className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
+          >
+            <button
+              onClick={() => editAt(i)}
+              title={`edit filter · ${chipLabel(f)}`}
+              className="pl-2 pr-1 py-0.5 font-mono text-[11px] hover:underline decoration-dotted underline-offset-2 max-w-[280px] truncate"
+            >
+              {chipLabel(f)}
+            </button>
+            <button
+              onClick={() => removeAt(i)}
+              title={`remove filter · ${chipLabel(f)}`}
+              className="pr-1.5 pl-0.5 py-0.5 rounded-r-full hover:bg-emerald-500/20"
+            >
+              <X size={11} />
+            </button>
+          </span>
+        ))}
+        {filters.length >= 2 && (
+          <button
+            onClick={() => setFilters([])}
+            title="clear all filters"
+            className="px-1.5 py-0.5 text-[11px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60 rounded"
+          >
+            clear all
           </button>
         )}
       </div>
+    )}
     </header>
   );
 }

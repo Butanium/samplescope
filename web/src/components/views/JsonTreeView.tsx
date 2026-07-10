@@ -107,7 +107,7 @@ function SingleMode() {
   // Single-sample view: j/k over the *natural* order is handled by Layout's
   // idx±1 fallback. Only publish a visible-order list when filter/shuffle/sort
   // reorders the dataset — and only then pay for the page fetch.
-  const navActive = v.filter_regex != null || v.shuffle_seed != null || v.sort_column != null;
+  const navActive = (v.filters?.length ?? 0) > 0 || v.shuffle_seed != null || v.sort_column != null;
   const { data: navPage } = useRowPage("json-nav", { limit: 2000, enabled: navActive });
   usePublishNav(navPage?.indices, navActive);
 

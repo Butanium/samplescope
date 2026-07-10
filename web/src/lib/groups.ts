@@ -27,14 +27,13 @@ export function useGroups() {
   const q = useQuery({
     queryKey: [
       "groups", v.dataset_path, groupBy,
-      v.filter_regex, v.filter_column, v.shuffle_seed, v.sort_column, v.sort_desc,
+      v.filters, v.shuffle_seed, v.sort_column, v.sort_desc,
     ],
     queryFn: () =>
       api.groups({
         path: v.dataset_path!,
         column: groupBy!,
-        filter_regex: v.filter_regex,
-        filter_column: v.filter_column,
+        filters: v.filters,
         shuffle_seed: v.shuffle_seed ?? null,
         sort_column: v.sort_column,
         sort_desc: v.sort_desc,

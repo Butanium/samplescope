@@ -73,10 +73,14 @@ sscope view next
 sscope view prev
   # Step the viewer back one row (state-aware, clamped at 0).
 sscope view filter <regex> [options]
-  # Apply a regex filter to the open dataset.
+  # Add a regex filter to the open dataset (AND-composed with existing ones).
   --column TEXT                     restrict to one column; omit for whole-row
+sscope view filters
+  # List the active filters (index, column, regex).
+sscope view rm-filter <idx>
+  # Remove the filter at index `idx` (see `sscope view filters`).
 sscope view clear-filter
-  # Remove any active regex filter.
+  # Clear all active filters.
 sscope view shuffle [options]
   # Pick a fresh shuffle seed for the open dataset. Clears any active sort.
   --seed INTEGER                    explicit seed; omit for random

@@ -6,6 +6,7 @@ import {
 } from "recharts";
 import { api } from "../../lib/api";
 import { useViewerState } from "../../lib/state";
+import { useUrlSync, type FilterTriple } from "../../lib/url";
 import { truncate, cn } from "../../lib/utils";
 import type { ColumnStats } from "../../lib/types";
 
@@ -33,18 +34,18 @@ function fmtNum(n: number | null | undefined): string {
 
 export default function StatsView() {
   const v = useViewerState();
+  const { url, setFilters } = useUrlSync();
   const { data, isLoading, error } = useQuery({
     queryKey: [
       "stats", v.dataset_path,
-      v.filter_regex, v.filter_column, v.shuffle_seed, v.sort_column, v.sort_desc,
+      v.filters, v.shuffle_seed, v.sort_column, v.sort_desc,
       // SQL selection composes server-side; key on it so the slice refetches.
       v.sql_query, v.sql_mode, v.sql_selection_count,
     ],
     queryFn: () =>
       api.stats({
         path: v.dataset_path!,
-        filter_regex: v.filter_regex,
-        filter_column: v.filter_column,
+        filters: v.filters,
         shuffle_seed: v.shuffle_seed ?? null,
         sort_column: v.sort_column,
         sort_desc: v.sort_desc,
@@ -54,10 +55,21 @@ export default function StatsView() {
 
   const [showIndex, setShowIndex] = useState(false);
 
+  // Click-to-filter: toggle an exact-mode chip for a categorical value. Composes
+  // with whatever else is active — the cards recompute over the new slice via
+  // the queryKey above (keyed on v.filters).
+  const toggleValue = (column: string, value: string) => {
+    const match = (f: FilterTriple) => f[0] === column && f[1] === value && f[2] === "exact";
+    const next = url.filters.some(match)
+      ? url.filters.filter((f) => !match(f))
+      : [...url.filters, [column, value, "exact"] as FilterTriple];
+    setFilters(next);
+  };
+
   if (isLoading || !data) return <div className="p-6 text-zinc-500 text-sm">computing stats…</div>;
   if (error) return <div className="p-6 text-red-500 text-sm">stats failed: {String(error)}</div>;
 
-  const filtered = v.filter_regex != null || v.sql_mode === "selection";
+  const filtered = (v.filters?.length ?? 0) > 0 || v.sql_mode === "selection";
   const indexCols = data.columns.filter((c) => c.index_like);
   const gridCols = showIndex ? data.columns : data.columns.filter((c) => !c.index_like);
 
@@ -71,7 +83,7 @@ export default function StatsView() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         {gridCols.map((c) => (
-          <ColumnCard key={c.name} col={c} />
+          <ColumnCard key={c.name} col={c} filters={url.filters} onToggle={toggleValue} />
         ))}
       </div>
       {indexCols.length > 0 && (
@@ -89,8 +101,19 @@ export default function StatsView() {
   );
 }
 
-function ColumnCard({ col }: { col: ColumnStats }) {
+function ColumnCard({
+  col, filters, onToggle,
+}: {
+  col: ColumnStats;
+  filters: FilterTriple[];
+  onToggle: (column: string, value: string) => void;
+}) {
   const pctNull = col.count + col.nulls > 0 ? Math.round((col.nulls / (col.count + col.nulls)) * 100) : 0;
+  // Values already exact-filtered on this column — rendered as active targets.
+  const active = new Set(
+    filters.filter((f) => f[2] === "exact" && f[0] === col.name).map((f) => f[1]),
+  );
+  const toggle = (value: string) => onToggle(col.name, value);
   return (
     <div className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-3 min-w-0">
       <div className="flex items-center gap-1.5 mb-2 min-w-0">
@@ -109,16 +132,20 @@ function ColumnCard({ col }: { col: ColumnStats }) {
           </span>
         )}
       </div>
-      <CardBody col={col} />
+      <CardBody col={col} active={active} toggle={toggle} />
     </div>
   );
 }
 
-function CardBody({ col }: { col: ColumnStats }) {
+type CatProps = { active: Set<string>; toggle: (value: string) => void };
+
+function CardBody({ col, active, toggle }: { col: ColumnStats } & CatProps) {
   const tv = col.top_values;
   // Prefer categorical breakdown when present, even if a histogram also exists.
   if (tv && tv.length > 0) {
-    return tv.length <= 8 ? <DonutBody col={col} /> : <TopBarsBody col={col} />;
+    return tv.length <= 8
+      ? <DonutBody col={col} active={active} toggle={toggle} />
+      : <TopBarsBody col={col} active={active} toggle={toggle} />;
   }
   if (col.histogram) return <HistogramBody col={col} />;
   return (
@@ -128,20 +155,42 @@ function CardBody({ col }: { col: ColumnStats }) {
   );
 }
 
-/** ≤ 8 categories → donut with a compact legend (+ a muted null slice). */
-function DonutBody({ col }: { col: ColumnStats }) {
+/** ≤ 8 categories → donut with a compact legend (+ a muted null slice). Real
+ *  values are click-to-filter targets (toggle an exact chip); the null slice
+ *  isn't clickable — a regex can't match NULL. */
+function DonutBody({ col, active, toggle }: { col: ColumnStats } & CatProps) {
   const slices = [
-    ...(col.top_values ?? []).map((t, i) => ({ name: t.value, count: t.count, color: COLORS[i % COLORS.length] })),
-    ...(col.nulls > 0 ? [{ name: "(null)", count: col.nulls, color: NULL_COLOR }] : []),
+    ...(col.top_values ?? []).map((t, i) => ({
+      label: t.value === "" ? "(empty)" : t.value,
+      value: t.value,
+      count: t.count,
+      color: COLORS[i % COLORS.length],
+      clickable: true,
+    })),
+    ...(col.nulls > 0
+      ? [{ label: "(null)", value: null as string | null, count: col.nulls, color: NULL_COLOR, clickable: false }]
+      : []),
   ];
   return (
     <div className="flex items-center gap-2">
       <div className="shrink-0" style={{ width: 120, height: 120 }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie data={slices} dataKey="count" nameKey="name" innerRadius={30} outerRadius={55} paddingAngle={1} isAnimationActive={false}>
+            <Pie
+              data={slices}
+              dataKey="count"
+              nameKey="label"
+              innerRadius={30}
+              outerRadius={55}
+              paddingAngle={1}
+              isAnimationActive={false}
+              onClick={(_d: any, i: number) => {
+                const s = slices[i];
+                if (s?.clickable) toggle(s.value as string);
+              }}
+            >
               {slices.map((s, i) => (
-                <Cell key={i} fill={s.color} stroke="none" />
+                <Cell key={i} fill={s.color} stroke="none" className={s.clickable ? "cursor-pointer" : undefined} />
               ))}
             </Pie>
             <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(val: any, name: any) => [val, name]} />
@@ -149,26 +198,46 @@ function DonutBody({ col }: { col: ColumnStats }) {
         </ResponsiveContainer>
       </div>
       <ul className="min-w-0 flex-1 space-y-0.5 text-[11px]">
-        {slices.map((s, i) => (
-          <li key={i} className="flex items-center gap-1.5 min-w-0">
-            <span className="shrink-0 w-2.5 h-2.5 rounded-sm" style={{ background: s.color }} />
-            <span className="truncate text-zinc-600 dark:text-zinc-300" title={s.name}>
-              {s.name === "" ? "(empty)" : s.name}
-            </span>
-            <span className="shrink-0 ml-auto tabular-nums text-zinc-400 dark:text-zinc-600">{s.count.toLocaleString()}</span>
-          </li>
-        ))}
+        {slices.map((s, i) => {
+          const on = s.value != null && active.has(s.value);
+          return (
+            <li
+              key={i}
+              onClick={s.clickable ? () => toggle(s.value as string) : undefined}
+              title={s.clickable ? "filter to this value" : undefined}
+              className={cn(
+                "flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1",
+                s.clickable
+                  ? "cursor-pointer hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
+                  : "text-zinc-400 dark:text-zinc-600",
+                on && "bg-emerald-500/15",
+              )}
+            >
+              <span className="shrink-0 w-2.5 h-2.5 rounded-sm" style={{ background: s.color }} />
+              <span
+                className={cn("truncate", on ? "text-emerald-700 dark:text-emerald-300 font-medium" : "text-zinc-600 dark:text-zinc-300")}
+                title={s.label}
+              >
+                {s.label}
+              </span>
+              <span className="shrink-0 ml-auto tabular-nums text-zinc-400 dark:text-zinc-600">{s.count.toLocaleString()}</span>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
 }
 
-/** > 8 categories → horizontal bars for the top 20, "+N other" footer. */
-function TopBarsBody({ col }: { col: ColumnStats }) {
+/** > 8 categories → horizontal bars for the top 20, "+N other" footer. Bars are
+ *  click-to-filter targets (toggle an exact chip on that value). */
+function TopBarsBody({ col, active, toggle }: { col: ColumnStats } & CatProps) {
   const rows = (col.top_values ?? []).map((t) => ({
     label: truncate(t.value === "" ? "(empty)" : t.value, 24),
     full: t.value === "" ? "(empty)" : t.value,
+    value: t.value,
     count: t.count,
+    on: active.has(t.value),
   }));
   const height = Math.max(140, rows.length * 22);
   return (
@@ -183,7 +252,17 @@ function TopBarsBody({ col }: { col: ColumnStats }) {
               formatter={(val: any) => [val, "count"]}
               labelFormatter={(_l: any, p: any) => p?.[0]?.payload?.full ?? ""}
             />
-            <Bar dataKey="count" fill={COLORS[1]} isAnimationActive={false} radius={[0, 2, 2, 0]} />
+            <Bar
+              dataKey="count"
+              isAnimationActive={false}
+              radius={[0, 2, 2, 0]}
+              className="cursor-pointer"
+              onClick={(d: any) => { if (d) toggle(d.value as string); }}
+            >
+              {rows.map((r, i) => (
+                <Cell key={i} fill={r.on ? COLORS[0] : COLORS[1]} className="cursor-pointer" />
+              ))}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>

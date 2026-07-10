@@ -159,6 +159,26 @@ aren't self-evident from the code.
   `setNavIndices` effect (the shared seam the multi-sample views were factored
   onto).
 
+- **Filters are an AND-composed list, in two representations.** Server state
+  (`ViewerState.filters`) is compiled `[{column, regex}]` — each entry is one
+  `regexp_matches` QUALIFY clause in `_build_rows_query`; `POST
+  /api/datasets/filter` is a FULL REPLACE (CLI `filter`/`rm-filter` do
+  read-modify-write; `clear-filter` posts `[]`). The URL keeps prettier
+  `[column, text, mode]` triples (`filters=` JSON param; mode ∈
+  text|regex|exact — exact compiles to `^escaped$`, authored by the stats
+  view's click-to-filter, which *toggles* the chip) and
+  `url.ts:compileTriple` is the single lowering seam. Legacy single-filter
+  survives twice over: old `q`/`qcol`/`qmode` URLs migrate on read, and the
+  read endpoints still accept `filter_regex`/`filter_column` params (appended
+  to the list). `UrlSyncBridge`'s mirror runs a two-phase filter
+  reconciliation gated on a `mountSynced` ref: before the mount flow has
+  pushed URL→state it only canonicalizes the URL's own representation (never
+  compares against the still-empty state — that comparison would wipe a
+  deep-linked filter); after, it rewrites `filters=` from state (as
+  regex-mode triples) only when the URL's triples no longer compile to the
+  active list, preserving user-typed text/exact forms. Same single-URL-writer
+  discipline as `view=`.
+
 - **Sort + shuffle are mutex.** `/api/datasets/sort` clears `shuffle_seed`
   and vice versa in the BUS publish; the SQL query in `_build_rows_query`
   picks one ORDER BY branch.

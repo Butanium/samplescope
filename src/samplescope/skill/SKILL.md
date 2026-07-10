@@ -70,10 +70,14 @@ sscope view next
 sscope view prev
   # Step the viewer back one row (state-aware, clamped at 0).
 sscope view filter <regex> [options]
-  # Apply a regex filter to the open dataset.
+  # Add a regex filter to the open dataset (AND-composed with existing ones).
   --column TEXT                     restrict to one column; omit for whole-row
+sscope view filters
+  # List the active filters (index, column, regex).
+sscope view rm-filter <idx>
+  # Remove the filter at index `idx` (see `sscope view filters`).
 sscope view clear-filter
-  # Remove any active regex filter.
+  # Clear all active filters.
 sscope view shuffle [options]
   # Pick a fresh shuffle seed for the open dataset. Clears any active sort.
   --seed INTEGER                    explicit seed; omit for random
@@ -182,7 +186,10 @@ sscope view fields clear [options]
 - **Triage together**: `sscope view filter <regex>`, the human reads with j/k
   in the browser while you `sscope view mark <idx> --tags interesting,weird
   --note "…"` the noteworthy rows. Marks persist across restarts — they're a
-  shared annotation layer.
+  shared annotation layer. `filter` *adds* to the active list (each with an
+  optional `--column`); filters AND-compose, so repeated `filter` calls narrow
+  the view. `sscope view filters` lists them, `rm-filter <idx>` drops one,
+  `clear-filter` removes all.
 - **Narrow by query**: `sscope view sql 'SELECT __idx, … FROM t WHERE …'
   --apply selection` narrows the human's view to the matching rows so they
   page through just those.

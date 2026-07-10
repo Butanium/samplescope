@@ -25,6 +25,10 @@ export type JudgePreset = Schemas["JudgePreset"];
 export type JudgeSettings = Schemas["JudgeSettings"];
 export type GroupBucket = Schemas["GroupBucket"];
 export type GroupsResponse = Schemas["GroupsResponse"];
+/** One compiled filter as the server consumes it (`column` null = whole-row).
+ *  The active filter is an AND-composed list; the frontend compiles its
+ *  {text|regex|exact} triples down to these (see `compileTriple` in lib/url). */
+export type FilterSpec = Schemas["FilterSpec"];
 export type ColumnStats = Schemas["ColumnStats"];
 export type StatsResponse = Schemas["StatsResponse"];
 
@@ -112,8 +116,8 @@ export type ViewerState = {
   numeric_cols: string[];
   tabular: boolean;
   row_idx: number;
-  filter_regex: string | null;
-  filter_column: string | null;
+  /** AND-composed active filter list (replaces the legacy single regex). */
+  filters: FilterSpec[];
   shuffle_seed: number | null;
   sort_column: string | null;
   sort_desc: boolean;
