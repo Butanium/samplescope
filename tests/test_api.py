@@ -340,6 +340,29 @@ def test_shuffle_is_seed_stable(server: str):
     assert a["indices"] != list(range(20))
 
 
+def test_shuffle_lands_on_first_shuffled_row(server: str):
+    """POST /shuffle points row_idx at the first row of the shuffled order,
+    not row 0 — the single view should show what the shuffled feed starts with."""
+    path = _path_of(server, "chat.jsonl")
+    httpx.post(f"{server}/api/datasets/open", json={"path": path})
+    # Pick a seed whose shuffled order doesn't start at row 0, so the assert
+    # can't pass vacuously (hash(__idx, seed) is stable across runs).
+    for seed in range(50):
+        first = httpx.get(
+            f"{server}/api/datasets/rows",
+            params={"path": path, "shuffle_seed": seed, "limit": 1},
+        ).json()["indices"][0]
+        if first != 0:
+            break
+    assert first != 0
+    httpx.post(f"{server}/api/datasets/shuffle", json={"seed": seed})
+    st = httpx.get(f"{server}/api/state").json()
+    assert st["shuffle_seed"] == seed
+    assert st["row_idx"] == first
+    # Reset shared viewer state for later tests (clears shuffle + row_idx).
+    httpx.post(f"{server}/api/datasets/open", json={"path": path})
+
+
 def test_marks_roundtrip(server: str):
     path = _path_of(server, "chat.jsonl")
     put = httpx.put(

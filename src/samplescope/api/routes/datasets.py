@@ -294,6 +294,29 @@ def _quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+def _first_visible_idx(shuffle_seed: int | None) -> int:
+    """__idx of the first row of the open dataset's visible order under
+    `shuffle_seed`, composing with the active filters + SQL selection.
+    0 when no dataset is open or the visible set is empty."""
+    path = BUS.state.dataset_path
+    if not path:
+        return 0
+    sql_selection = (
+        BUS.state.sql_selection if BUS.state.sql_mode == "selection" else None
+    )
+    sql, params = _build_rows_query(
+        safe_path(path), list(BUS.state.filters), shuffle_seed,
+        sql_selection=sql_selection,
+    )
+    with cursor() as cur:
+        cur.execute(sql + " LIMIT 1", params)
+        row = cur.fetchone()
+        if row is None:
+            return 0
+        cols = [c[0] for c in cur.description]
+    return int(row[cols.index("__idx")])
+
+
 @router.get("/rows", response_model=RowPage)
 def read_rows(
     path: str,
@@ -747,14 +770,18 @@ async def set_filter(payload: FilterUpdate) -> dict:
 
 @router.post("/shuffle")
 async def shuffle(payload: dict | None = None) -> dict:
-    """Set a new shuffle seed. Clears any active sort (mutex)."""
+    """Set a new shuffle seed. Clears any active sort (mutex).
+
+    row_idx lands on the *first* row of the new shuffled order, not row 0 —
+    the single view should show what the shuffled feed starts with."""
     import random
     payload = payload or {}
     seed = payload.get("seed")
     if seed is None:
         seed = random.randint(0, 2**31 - 1)
     await BUS.publish(
-        "shuffle", shuffle_seed=int(seed), sort_column=None, sort_desc=False, row_idx=0,
+        "shuffle", shuffle_seed=int(seed), sort_column=None, sort_desc=False,
+        row_idx=_first_visible_idx(int(seed)),
     )
     return {"ok": True, "seed": seed}
 

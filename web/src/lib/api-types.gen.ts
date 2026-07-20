@@ -425,6 +425,9 @@ export interface paths {
         /**
          * Shuffle
          * @description Set a new shuffle seed. Clears any active sort (mutex).
+         *
+         *     row_idx lands on the *first* row of the new shuffled order, not row 0 —
+         *     the single view should show what the shuffled feed starts with.
          */
         post: operations["shuffle_api_datasets_shuffle_post"];
         delete?: never;
