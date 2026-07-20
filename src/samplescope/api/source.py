@@ -23,6 +23,8 @@ def read_source_expr(p: Path, param: str = "?") -> str:
         return f"read_csv_auto({param}, header=true, delim='\\t')"
     if ext == ".csv":
         return f"read_csv_auto({param}, header=true)"
+    if ext == ".parquet":
+        return f"read_parquet({param})"
     if ext == ".json":
         # A plain `.json` file is a single JSON value — a pretty-printed object
         # or an array of records — not newline-delimited. `format='auto'` lets

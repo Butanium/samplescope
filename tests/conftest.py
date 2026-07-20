@@ -151,6 +151,20 @@ def dataset_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
         score = round((i % 10) / 10 + 0.01, 3)  # in [0, 1]
         w.writerow([i, question, answer, score, cats[i % 3]])
     (d / "wide_text.csv").write_text(buf.getvalue())
+    # Parquet siblings converted by DuckDB itself (no pandas/pyarrow dep):
+    # chat.parquet keeps `messages` as LIST<STRUCT> so chat detection applies;
+    # wide_text.parquet mirrors the long-text CSV (cards default).
+    import duckdb
+    con = duckdb.connect()
+    con.execute(
+        f"COPY (SELECT * FROM read_json_auto('{d / 'chat.jsonl'}', format='newline_delimited')) "
+        f"TO '{d / 'chat.parquet'}' (FORMAT PARQUET)"
+    )
+    con.execute(
+        f"COPY (SELECT * FROM read_csv_auto('{d / 'wide_text.csv'}', header=true)) "
+        f"TO '{d / 'wide_text.parquet'}' (FORMAT PARQUET)"
+    )
+    con.close()
     (d / "notes.md").write_text("# Title\n\nSome **markdown** prose.\n")
     return d
 

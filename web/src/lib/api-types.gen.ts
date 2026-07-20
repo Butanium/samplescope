@@ -213,7 +213,7 @@ export interface paths {
         };
         /**
          * List Datasets
-         * @description Walk every scan root and return JSONL + .eval + image + PDF files.
+         * @description Walk every scan root and return dataset + image + PDF files (see _classify).
          */
         get: operations["list_datasets_api_datasets_get"];
         put?: never;
@@ -1159,7 +1159,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "jsonl" | "csv" | "eval" | "json" | "pdf" | "image" | "markdown" | "other";
+            kind: "jsonl" | "csv" | "parquet" | "eval" | "json" | "pdf" | "image" | "markdown" | "other";
             /** Name */
             name: string;
             /** Parent */

@@ -365,3 +365,43 @@ def test_static_ui_served(server: str):
     assert "<!doctype html>" in r.text.lower()
     # API precedence over the SPA mount.
     assert httpx.get(f"{server}/api/health").headers["content-type"].startswith("application/json")
+
+
+def test_parquet_full_pipeline(server: str):
+    # Listed with its own kind.
+    items = httpx.get(f"{server}/api/datasets").json()
+    kinds = {e["name"]: e["kind"] for e in items}
+    assert kinds["wide_text.parquet"] == "parquet"
+    assert kinds["chat.parquet"] == "parquet"
+
+    # Long-text parquet → cards default, real row count + columns.
+    path = _path_of(server, "wide_text.parquet")
+    info = httpx.get(f"{server}/api/datasets/info", params={"path": path}).json()
+    assert info["view_kind"] == "json"
+    assert info["row_count"] == 12
+    assert set(info["columns"]) == {"id", "question", "answer", "score", "category"}
+
+    # Filters compose through the same DuckDB pipeline.
+    page = httpx.get(
+        f"{server}/api/datasets/rows",
+        params={"path": path, "limit": 50,
+                "filters": json.dumps([{"column": "category", "regex": "^alpha$"}])},
+    ).json()
+    assert page["total_filtered"] == 4
+
+    # Stats too (index_like + categorical survive the format change).
+    st = httpx.get(f"{server}/api/datasets/stats", params={"path": path}).json()
+    cols = {c["name"]: c for c in st["columns"]}
+    assert cols["id"]["index_like"] is True
+    assert cols["category"]["dtype"] == "categorical"
+    assert cols["answer"]["dtype"] == "text"
+
+
+def test_parquet_chat_detection_e2e(server: str):
+    # chat.jsonl round-tripped to parquet keeps LIST<STRUCT> messages → chat view.
+    path = _path_of(server, "chat.parquet")
+    info = httpx.get(f"{server}/api/datasets/info", params={"path": path}).json()
+    assert info["view_kind"] == "chat"
+    row = httpx.get(f"{server}/api/datasets/row", params={"path": path, "idx": 0}).json()
+    msgs = row["messages"]
+    assert isinstance(msgs, list) and msgs and msgs[0]["role"]

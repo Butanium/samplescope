@@ -208,7 +208,7 @@ def _resolve_path(path: Optional[str]) -> str:
 def cmd_ls(
     filter_: Optional[str] = typer.Option(None, "--filter", help="substring match on path"),
 ) -> None:
-    """List discoverable datasets (JSONL + .eval files under scan roots)."""
+    """List discoverable datasets (JSONL/CSV/parquet/.eval under scan roots)."""
     items = _get("/api/datasets")
     if filter_:
         items = [i for i in items if filter_ in i.get("path", "")]

@@ -89,7 +89,9 @@ aren't self-evident from the code.
   datasets↔schema_detect import cycle), `tabular` is always true, chat
   detection is skipped (a `messages` CSV cell is a JSON string the chat
   renderer can't consume), and an unreadable CSV degrades to plain `table`
-  rather than 500ing discovery. `Layout.tsx`'s `ViewSwitch` then turns
+  rather than 500ing discovery. **Parquet goes further**: DuckDB returns
+  STRUCT/LIST columns as real dicts/lists, so parquet runs the *full* JSONL
+  heuristics — chat detection included — via `_detect_parquet`. `Layout.tsx`'s `ViewSwitch` then turns
   `view_kind` + `numeric_cols`/`tabular` into a **samples / table / plot /
   stats** toggle over the *same* dataset; `JsonTreeView` adds a **single /
   scroll** (feed, virtualized) sub-toggle sharing `url.viewMode` with the chat

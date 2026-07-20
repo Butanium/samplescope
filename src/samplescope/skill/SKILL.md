@@ -55,7 +55,7 @@ Full command reference (generated from the CLI itself — trust it over memory):
 <!-- BEGIN GENERATED: sscope-view-reference (python -m samplescope._gen_cli_ref) -->
 ```
 sscope view ls [options]
-  # List discoverable datasets (JSONL + .eval files under scan roots).
+  # List discoverable datasets (JSONL/CSV/parquet/.eval under scan roots).
   --filter TEXT                     substring match on path
 sscope view info <path>
   # Schema-detect one dataset: row count, columns, view kind.
@@ -224,6 +224,8 @@ auto-detects a good view for (detection sniffs the first 64 rows):
 - **Metrics view** — flat numeric rows with a `step` column that's ~unique
   per row (a real logging curve), ≥3 numeric columns, no long text.
 - **Eval logs** — inspect-ai `.eval` files are first-class; no conversion.
+- **Parquet** — first-class: sniffed with the full JSONL heuristics, chat
+  detection included (STRUCT/LIST columns survive as real objects).
 - **CSV/TSV** — sniffed with the same heuristics as JSONL (a long-text CSV
   opens as cards, a step curve as a plot), and JSON-encoded string cells
   render expanded in the card view. Still prefer JSONL for anything with

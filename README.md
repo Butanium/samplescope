@@ -1,6 +1,6 @@
 # samplescope
 
-A research-focused browser for JSONL / CSV / inspect-ai `.eval` datasets.
+A research-focused browser for JSONL / CSV / Parquet / inspect-ai `.eval` datasets.
 Point it at any directory; it auto-detects schemas and renders chat
 transcripts as bubbles, flat rows as a virtualized table, training curves as
 line charts, and `.eval` logs as rich sample cards — with regex/SQL
@@ -58,7 +58,7 @@ One binary, two halves: `sscope serve [DIR ...]` runs the server (bare
 <!-- BEGIN GENERATED: sscope-view-reference (python -m samplescope._gen_cli_ref) -->
 ```
 sscope view ls [options]
-  # List discoverable datasets (JSONL + .eval files under scan roots).
+  # List discoverable datasets (JSONL/CSV/parquet/.eval under scan roots).
   --filter TEXT                     substring match on path
 sscope view info <path>
   # Schema-detect one dataset: row count, columns, view kind.

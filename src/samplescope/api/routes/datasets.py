@@ -122,7 +122,7 @@ def serve_file(path: str):
 
 @router.get("", response_model=list[DatasetEntry])
 def list_datasets() -> list[DatasetEntry]:
-    """Walk every scan root and return JSONL + .eval + image + PDF files."""
+    """Walk every scan root and return dataset + image + PDF files (see _classify)."""
     out: list[DatasetEntry] = []
     for root in SETTINGS.scan_roots:
         if not root.exists():
@@ -159,6 +159,8 @@ def _classify(p: Path) -> FileKind:
         return "jsonl"
     if s in CSV_SUFFIXES:
         return "csv"
+    if s == ".parquet":
+        return "parquet"
     if s == ".eval":
         return "eval"
     if s == ".json":
@@ -182,7 +184,7 @@ def dataset_info(path: str) -> DatasetInfo:
     if (
         p.suffix.lower() in JSONL_SUFFIXES
         or p.suffix.lower() in CSV_SUFFIXES
-        or p.suffix.lower() in {".eval", ".json"}
+        or p.suffix.lower() in {".eval", ".json", ".parquet"}
     ):
         qp = query_path(p)
         src = _read_source(qp)

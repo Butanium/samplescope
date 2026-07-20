@@ -10,7 +10,7 @@ from typing import Literal
 # TS side is *generated* from the OpenAPI schema these feed (see
 # `samplescope._openapi` + `web` `npm run gen:types`), so the unions can't drift
 # across the language boundary — adding a kind here flows to the frontend.
-FileKind = Literal["jsonl", "csv", "eval", "json", "pdf", "image", "markdown", "other"]
+FileKind = Literal["jsonl", "csv", "parquet", "eval", "json", "pdf", "image", "markdown", "other"]
 ViewKind = Literal["chat", "table", "metrics", "eval_log", "json", "markdown"]
 
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
@@ -32,6 +32,8 @@ def detect_view(path: Path, peek: int = 64) -> tuple[ViewKind, dict]:
         return "markdown", {}
     if path.suffix.lower() in {".csv", ".tsv"}:
         return _detect_csv(path, peek)
+    if path.suffix.lower() == ".parquet":
+        return _detect_parquet(path, peek)
     if not path.exists() or path.stat().st_size == 0:
         return "json", {"empty": True}
     rows: list[dict] = []
@@ -116,7 +118,7 @@ def _detect_csv(path: Path, peek: int) -> tuple[ViewKind, dict]:
     construction, so `tabular` is always True and chat detection is skipped."""
     fmt = path.suffix.lower().lstrip(".")
     try:
-        rows = _read_csv_rows(path, peek)
+        rows = _read_rows_duckdb(path, peek)
     except Exception:
         # Malformed / unreadable CSV is a system boundary — a file listed by the
         # scan can vanish or be half-written before detection runs. Discovery
@@ -126,12 +128,32 @@ def _detect_csv(path: Path, peek: int) -> tuple[ViewKind, dict]:
     return _classify_flat_rows(rows, tabular=True, extra_meta={"format": fmt})
 
 
-def _read_csv_rows(path: Path, peek: int) -> list[dict]:
-    """Read the first `peek` CSV rows via DuckDB, normalized to JSON scalars."""
+def _detect_parquet(path: Path, peek: int) -> tuple[ViewKind, dict]:
+    """Parquet: sniff like JSONL. DuckDB hands STRUCT/LIST columns back as real
+    dicts/lists, so the *full* heuristic run applies — including chat detection
+    (unlike CSV, where a `messages` cell is an unusable JSON string)."""
+    meta = {"format": "parquet"}
+    try:
+        rows = _read_rows_duckdb(path, peek)
+    except Exception:
+        # Same system boundary as CSV: a scanned file can vanish / be
+        # half-written before detection runs; degrade instead of 500ing.
+        return "table", meta
+    if not rows:
+        # A schema with zero rows: all-rows checks are vacuous, so decide here.
+        return "table", {**meta, "empty": True}
+    flat = all(_is_flat(r) for r in rows)
+    if all(_is_chat_row(r) for r in rows):
+        return "chat", {"sampled": len(rows), "numeric_cols": _numeric_columns(rows), "tabular": flat, **meta}
+    return _classify_flat_rows(rows, tabular=flat, extra_meta=meta)
+
+
+def _read_rows_duckdb(path: Path, peek: int) -> list[dict]:
+    """Read the first `peek` rows via DuckDB, normalized to JSON scalars."""
     from .duck import cursor
     from .source import read_source_expr
 
-    src = read_source_expr(path)  # read_csv_auto(?, header=true[, delim='\t'])
+    src = read_source_expr(path)  # read_csv_auto / read_parquet on extension
     with cursor() as cur:
         cur.execute(f"SELECT * FROM {src} LIMIT {int(peek)}", [str(path)])
         cols = [c[0] for c in cur.description] if cur.description else []
@@ -140,7 +162,7 @@ def _read_csv_rows(path: Path, peek: int) -> list[dict]:
 
 
 def _normalize_scalar(v):
-    """Coerce a DuckDB CSV value to a JSON scalar for the flat-row heuristics.
+    """Coerce a DuckDB value to a JSON-compatible one for the row heuristics.
 
     `Decimal` → float (counts as numeric); `date`/`datetime`/other non-JSON
     scalars → a short string (non-numeric, never long text)."""
@@ -151,6 +173,10 @@ def _normalize_scalar(v):
     if isinstance(v, Decimal):
         return float(v)
     if isinstance(v, (str, int, float)):
+        return v
+    if isinstance(v, (dict, list)):
+        # Parquet STRUCT/LIST columns arrive as real containers — keep them so
+        # chat detection and flatness see the same shapes as JSONL rows.
         return v
     return str(v)
 

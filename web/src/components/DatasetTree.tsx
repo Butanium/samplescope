@@ -428,6 +428,7 @@ function iconFor(kind: DatasetEntry["kind"]) {
     : kind === "jsonl" ? FileText
     : kind === "markdown" ? BookText
     : kind === "csv" ? FileSpreadsheet
+    : kind === "parquet" ? FileSpreadsheet
     : kind === "image" ? ImageIcon
     : kind === "pdf" ? FileType
     : FileCode;

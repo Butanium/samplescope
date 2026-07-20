@@ -65,3 +65,50 @@ def test_malformed_csv_falls_back_to_table(tmp_path):
     kind, meta = detect_view(missing)
     assert kind == "table"
     assert meta == {"format": "csv"}
+
+
+def _parquet_from_sql(tmp_path, name, select_sql):
+    import duckdb
+
+    p = tmp_path / name
+    duckdb.connect().execute(f"COPY ({select_sql}) TO '{p}' (FORMAT PARQUET)")
+    return p
+
+
+def test_parquet_long_text_is_json(tmp_path):
+    p = _parquet_from_sql(
+        tmp_path, "lt.parquet", "SELECT i AS id, repeat('x', 250) AS text FROM range(3) t(i)"
+    )
+    kind, meta = detect_view(p)
+    assert kind == "json"
+    assert meta["tabular"] is True
+    assert meta["numeric_cols"] == ["id"]
+    assert meta["format"] == "parquet"
+
+
+def test_parquet_scalars_is_table(tmp_path):
+    p = _parquet_from_sql(
+        tmp_path, "flat.parquet", "SELECT i AS n, 'v' || i AS name FROM range(4) t(i)"
+    )
+    kind, meta = detect_view(p)
+    assert kind == "table"
+    assert meta["numeric_cols"] == ["n"]
+    assert meta["tabular"] is True
+
+
+def test_parquet_chat_detection(tmp_path):
+    # Unlike CSV, parquet keeps `messages` as LIST<STRUCT> → real dicts → chat.
+    p = _parquet_from_sql(
+        tmp_path,
+        "chat.parquet",
+        "SELECT [{'role': 'user', 'content': 'hi ' || i},"
+        " {'role': 'assistant', 'content': 'yo'}] AS messages, i AS idx FROM range(3) t(i)",
+    )
+    kind, meta = detect_view(p)
+    assert kind == "chat"
+    assert meta["format"] == "parquet"
+
+
+def test_parquet_missing_falls_back_to_table(tmp_path):
+    kind, meta = detect_view(tmp_path / "gone.parquet")
+    assert (kind, meta) == ("table", {"format": "parquet"})
