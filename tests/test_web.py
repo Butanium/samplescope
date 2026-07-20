@@ -7,7 +7,10 @@ message if no frontend build exists.
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
+import sys
 from urllib.parse import quote
 
 import httpx
@@ -413,3 +416,44 @@ def test_json_layout_inherited_by_related_schema(page: Page, server: str):
             reset = main.get_by_title(re.compile("^reset field"))
             if reset.count() > 0:
                 reset.click()
+
+
+def test_chat_metadata_uses_shared_field_layout(page: Page, server: str):
+    """The chat view renders row metadata through the SAME schema-keyed layout
+    as the JSON cards: hidden by default, header chips to pin. Also the CLI's
+    `sscope view fields add` drift guard — it must hash the schema key exactly
+    like the frontend, or the pin it writes is invisible here."""
+    page.goto(server)
+    open_file(page, "chat.jsonl")
+    main = page.get_by_role("main")
+    expect(page.get_by_text("question 0", exact=True)).to_be_visible()
+    try:
+        # chat.jsonl carries `label` metadata beside `messages` — folded away by
+        # default, so the transcript is what you see.
+        expect(main.get_by_text(re.compile("more field")).first).to_be_visible()
+        expect(main.get_by_title(re.compile("^unpin"))).to_have_count(0)
+
+        # Pin it from the terminal; the browser picks it up as a header chip.
+        env = {**os.environ, "SAMPLESCOPE_BASE_URL": server}
+        out = subprocess.run(
+            [sys.executable, "-m", "samplescope.cli", "view", "fields", "add", "label"],
+            capture_output=True, text=True, env=env, check=True,
+        ).stdout
+        assert "pinned: label" in out, out
+        page.reload()
+        expect(main.get_by_title(re.compile("^unpin")).first).to_be_visible()
+
+        listed = subprocess.run(
+            [sys.executable, "-m", "samplescope.cli", "view", "fields", "ls"],
+            capture_output=True, text=True, env=env, check=True,
+        ).stdout
+        assert "pinned (1): label" in listed, listed
+        assert "unlisted fields default to: hidden" in listed, listed
+    finally:
+        subprocess.run(
+            [sys.executable, "-m", "samplescope.cli", "view", "fields", "clear"],
+            capture_output=True, text=True, env={**os.environ, "SAMPLESCOPE_BASE_URL": server},
+        )
+        reset = main.get_by_title(re.compile("^reset field"))
+        if reset.count() > 0:
+            reset.click()

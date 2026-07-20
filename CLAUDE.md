@@ -116,8 +116,16 @@ aren't self-evident from the code.
   with `distinct ≤ 12` get *both* top_values and histogram; the frontend
   prefers top_values. Also exposed as `sscope view stats [PATH]`.
 
-- **JSON cards: schema-keyed top-level field layout.** Only the *outermost*
-  object of each row gets it (nested cards keep the plain recursive render).
+- **Schema-keyed top-level field layout (JSON cards *and* chat metadata).**
+  For JSON cards only the *outermost* object of each row gets it (nested cards
+  keep the plain recursive render); the chat view runs a row's **metadata half**
+  (every top-level field except `messages`) through the same subsystem with
+  `fallbackHidden` on, so the transcript is the content and metadata is opt-in.
+  That replaced a bespoke pinned-fields UI — there is one pin/hide system now,
+  and `sscope view fields` drives it for both views by computing the schema key
+  in Python (`cli.py:_field_schema_key`, a mirror of the TS FNV-1a; the smoke
+  `test_chat_metadata_uses_shared_field_layout` pins through the CLI and asserts
+  the chip renders, which is the cross-language drift guard).
   Each top-level field is in one of three states — **body** (the card stack),
   **drawer** (folded into "N more fields"), or **header** (a compact chip next
   to the row index) — plus a drag-reorder of the body fields. `useFieldLayout`

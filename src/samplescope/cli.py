@@ -868,34 +868,96 @@ def cmd_plot_clear() -> None:
 fields_app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
-    help="Pin row metadata fields to show above each row in the chat view.",
+    help="Pin fields as header chips (chat + JSON card views share one layout).",
 )
 view_app.add_typer(fields_app, name="fields")
 
 
-def _pinned_fields_key(path: str) -> str:
-    """Pref key matching the frontend's `pinnedFieldsKey()` in ChatRowView."""
-    return f"pinnedFields::{path}"
+def _base36(n: int) -> str:
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    if n == 0:
+        return "0"
+    out: list[str] = []
+    while n:
+        n, r = divmod(n, 36)
+        out.append(digits[r])
+    return "".join(reversed(out))
 
 
-def _get_pinned_fields(path: str) -> list[str]:
-    """Read the JSON-encoded list from the shared prefs store."""
-    items = _get("/api/prefs") or {}
-    raw = items.get(_pinned_fields_key(path))
-    if not raw:
-        return []
-    try:
-        val = json.loads(raw)
-    except Exception:
-        return []
-    return [str(v) for v in val] if isinstance(val, list) else []
+def _field_schema_key(names: list[str]) -> str:
+    """Mirror of `fieldSchemaKey()` in web/src/components/views/fieldLayout.tsx:
+    FNV-1a over the sorted field names joined by spaces, base36.
+
+    The two implementations must agree or the CLI silently writes a layout the
+    UI never reads — `tests/test_web.py` pins a field through the CLI and
+    asserts the chip appears in the browser, which is the drift guard.
+    """
+    text = "\0".join(sorted(names))  # NUL separator, exactly as the TS does
+    h = 0x811C9DC5
+    for ch in text:
+        h = ((h ^ ord(ch)) * 0x01000193) & 0xFFFFFFFF
+    return _base36(h)
 
 
-def _set_pinned_fields(path: str, fields: list[str]) -> None:
-    # httpx doesn't auto-encode the path component, so do it explicitly to
-    # protect against slashes / colons in the key (dataset paths contain both).
+def _layout_columns(path: str) -> tuple[list[str], bool]:
+    """The fields the viewer's layout covers for this dataset, plus whether it
+    is a chat view (where the transcript is content, not a layout field, and
+    metadata defaults to hidden)."""
+    info = _get("/api/datasets/info", params={"path": path}) or {}
+    is_chat = info.get("view_kind") == "chat"
+    cols = [c for c in info.get("columns", []) if c != "__idx"]
+    if is_chat:
+        cols = [c for c in cols if c != "messages"]
+    return cols, is_chat
+
+
+def _layout_pref_key(schema_key: str) -> str:
+    return f"json.fields:{schema_key}"
+
+
+def _get_layout(path: str) -> tuple[dict, list[str], str]:
+    """Read the field layout the viewer applies to `path`. Returns the layout,
+    the covered columns, and the pref key to write back to."""
+    cols, is_chat = _layout_columns(path)
+    key = _layout_pref_key(_field_schema_key(cols))
+    raw = (_get("/api/prefs") or {}).get(key)
+    layout: dict = {}
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                layout = parsed
+        except Exception:
+            layout = {}
+    layout.setdefault("order", [])
+    for k in ("hidden", "shown", "header"):
+        layout.setdefault(k, [])
+    layout.setdefault("defaultHidden", is_chat)
+    return layout, cols, key
+
+
+def _set_layout(key: str, layout: dict, cols: list[str]) -> None:
     from urllib.parse import quote
-    _put(f"/api/prefs/{quote(_pinned_fields_key(path), safe='')}", {"value": json.dumps(fields)})
+
+    keep = lambda names: [c for c in names if c in cols]  # noqa: E731
+    body = {
+        "order": [c for c in layout.get("order", []) if c in cols]
+        + [c for c in cols if c not in layout.get("order", [])],
+        "hidden": keep(layout.get("hidden", [])),
+        "shown": keep(layout.get("shown", [])),
+        "header": keep(layout.get("header", [])),
+        "defaultHidden": bool(layout.get("defaultHidden")),
+        # Marks the layout as deliberately set, exactly like the UI's saves —
+        # without it the viewer treats the schema as untouched and may borrow a
+        # related schema's layout instead.
+        "self": True,
+    }
+    _put(f"/api/prefs/{quote(key, safe='')}", {"value": json.dumps(body)})
+
+
+def _pin_result(layout: dict) -> str:
+    pinned = layout.get("header", [])
+    return ", ".join(pinned) if pinned else "(none)"
 
 
 @fields_app.command("ls")
@@ -904,9 +966,21 @@ def cmd_fields_ls(
 ) -> None:
     """Show the currently-pinned fields for a dataset."""
     p = _resolve_path(path)
-    fields = _get_pinned_fields(p)
+    layout, cols, _ = _get_layout(p)
+    header = layout.get("header", [])
+    shown = [c for c in cols if c not in header and _visible(c, layout)]
     print(f"path={p}")
-    print(f"pinned ({len(fields)}): {', '.join(fields) if fields else '(none)'}")
+    print(f"pinned ({len(header)}): {_pin_result(layout)}")
+    print(f"in body ({len(shown)}): {', '.join(shown) if shown else '(none)'}")
+    print(f"unlisted fields default to: {'hidden' if layout.get('defaultHidden') else 'shown'}")
+
+
+def _visible(col: str, layout: dict) -> bool:
+    if col in layout.get("shown", []):
+        return True
+    if col in layout.get("hidden", []):
+        return False
+    return not layout.get("defaultHidden")
 
 
 @fields_app.command("set")
@@ -916,15 +990,19 @@ def cmd_fields_set(
 ) -> None:
     """Replace the pinned-field list for a dataset with the given columns."""
     p = _resolve_path(path)
-    # Dedupe but preserve order.
+    layout, cols, key = _get_layout(p)
     seen: set[str] = set()
     cleaned: list[str] = []
     for c in columns:
         if c and c not in seen:
             seen.add(c)
             cleaned.append(c)
-    _set_pinned_fields(p, cleaned)
-    print(f"pinned: {', '.join(cleaned) if cleaned else '(none)'}")
+    unknown = [c for c in cleaned if c not in cols]
+    if unknown:
+        _die(f"not a field of this dataset: {', '.join(unknown)} (have: {', '.join(cols)})")
+    layout["header"] = cleaned
+    _set_layout(key, layout, cols)
+    print(f"pinned: {_pin_result(layout)}")
 
 
 @fields_app.command("add")
@@ -934,13 +1012,15 @@ def cmd_fields_add(
 ) -> None:
     """Append a column to the pinned list."""
     p = _resolve_path(path)
-    fields = _get_pinned_fields(p)
-    if column in fields:
+    layout, cols, key = _get_layout(p)
+    if column not in cols:
+        _die(f"not a field of this dataset: {column} (have: {', '.join(cols)})")
+    if column in layout["header"]:
         print(f"already pinned: {column}")
         return
-    fields.append(column)
-    _set_pinned_fields(p, fields)
-    print(f"pinned: {', '.join(fields)}")
+    layout["header"] = [*layout["header"], column]
+    _set_layout(key, layout, cols)
+    print(f"pinned: {_pin_result(layout)}")
 
 
 @fields_app.command("rm")
@@ -950,12 +1030,13 @@ def cmd_fields_rm(
 ) -> None:
     """Remove a column from the pinned list."""
     p = _resolve_path(path)
-    fields = _get_pinned_fields(p)
-    if column not in fields:
+    layout, cols, key = _get_layout(p)
+    if column not in layout["header"]:
         print(f"not pinned: {column}")
         return
-    _set_pinned_fields(p, [c for c in fields if c != column])
-    print(f"pinned: {', '.join(c for c in fields if c != column) or '(none)'}")
+    layout["header"] = [c for c in layout["header"] if c != column]
+    _set_layout(key, layout, cols)
+    print(f"pinned: {_pin_result(layout)}")
 
 
 @fields_app.command("clear")
@@ -964,7 +1045,9 @@ def cmd_fields_clear(
 ) -> None:
     """Unpin every field."""
     p = _resolve_path(path)
-    _set_pinned_fields(p, [])
+    layout, cols, key = _get_layout(p)
+    layout["header"] = []
+    _set_layout(key, layout, cols)
     print("cleared.")
 
 

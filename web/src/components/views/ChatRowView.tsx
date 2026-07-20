@@ -14,11 +14,17 @@ import RawJsonToggle from "../RawJsonToggle";
 import PreOrMarkdown from "../PreOrMarkdown";
 import Collapsible from "../Collapsible";
 import CopyButton from "../CopyButton";
-import MultiSelectChips from "../ui/MultiSelectChips";
 import { GroupedFeed, GroupCycler } from "../GroupedFeed";
-import { Brain, ChevronsDown, ChevronsRight, Pin } from "lucide-react";
+import { Brain, ChevronsDown, ChevronsRight } from "lucide-react";
 import { usePinHandler } from "../../lib/pin";
 import { useRawOverride } from "../../lib/rawOverrides";
+import {
+  FieldHeaderChips,
+  FieldLayoutTools,
+  TopLevelObject,
+  fieldSchemaKey,
+} from "./fieldLayout";
+import type { NodeCtx } from "./jsonCards";
 
 const PAGE = 100;
 
@@ -81,35 +87,39 @@ function getMessages(row: Record<string, any> | undefined): Message[] {
   return m as Message[];
 }
 
-/** Pref key for which metadata columns are pinned at the top of each row.
- *  Per-dataset (different metric dumps want different fields). Stored via
- *  the shared prefs layer so it round-trips to the backend and survives
- *  reload + cross-browser. The CLI mutates the same key directly. */
-function pinnedFieldsKey(path: string): string {
-  return `pinnedFields::${path}`;
+/**
+ * A chat row's metadata half: every top-level field except the transcript.
+ * It goes through the SAME schema-keyed field layout as the JSON card view
+ * (header chips / body / "N more fields" drawer, `fieldLayout.tsx`) — chat
+ * just flips the default to hidden, since here the transcript is the content
+ * and metadata is opt-in. `schemaKey` is null when there is no metadata.
+ */
+function useRowMeta(row: Record<string, any> | undefined) {
+  return useMemo(() => {
+    const meta: Record<string, any> = {};
+    for (const [k, val] of Object.entries(row ?? {})) if (k !== "messages") meta[k] = val;
+    const keys = Object.keys(meta);
+    return { meta, schemaKey: keys.length ? fieldSchemaKey(keys) : null };
+  }, [row]);
 }
 
-/** Strip of `key: value` chips rendered above each row's messages. Skips
- *  fields whose value is null/empty so an unselected metadata field doesn't
- *  produce a blank chip when the column is sparse. */
-function PinnedFields({ row, fields }: { row: Record<string, any>; fields: string[] }) {
-  if (fields.length === 0) return null;
-  const present = fields.filter((f) => row[f] !== undefined && row[f] !== null && row[f] !== "");
-  if (present.length === 0) return null;
+/** Card-renderer context for the metadata fields. Chat has no expand-all /
+ *  markdown toggles of its own for these, and the feed remounts on the
+ *  toolbar's expand toggle, so `gen` never needs to change. */
+function useMetaCtx(row: Record<string, any> | undefined): NodeCtx {
+  return useMemo(
+    () => ({ markdown: true, ctxRow: row, defaultOpen: false, gen: 0 }),
+    [row],
+  );
+}
+
+/** Metadata block below a transcript: shown fields as cards + the fold. */
+function RowMeta({ row, ctx }: { row: Record<string, any>; ctx: NodeCtx }) {
+  const { meta, schemaKey } = useRowMeta(row);
+  if (!schemaKey) return null;
   return (
-    <div className="flex flex-wrap gap-1.5 mb-2">
-      {present.map((f) => (
-        <span
-          key={f}
-          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm bg-amber-500/10 text-[10.5px] font-mono border border-amber-500/30"
-          title={`${f}: ${String(row[f])}`}
-        >
-          <span className="text-amber-700 dark:text-amber-300 opacity-70">{f}</span>
-          <span className="text-zinc-800 dark:text-zinc-100 truncate max-w-[260px]">
-            {fmtFieldValue(row[f])}
-          </span>
-        </span>
-      ))}
+    <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+      <TopLevelObject value={meta} schemaKey={schemaKey} ctx={ctx} fallbackHidden />
     </div>
   );
 }
@@ -228,28 +238,6 @@ function rowToMarkdown(row: Record<string, any>): string {
   return parts.join("\n\n");
 }
 
-function OtherFields({ row, hide }: { row: Record<string, any>; hide?: string[] }) {
-  const hidden = new Set<string>(["messages", ...(hide ?? [])]);
-  const others = Object.entries(row).filter(([k]) => !hidden.has(k));
-  if (others.length === 0) return null;
-  return (
-    <details className="text-[11px] text-zinc-500 mt-3">
-      <summary
-        onClick={(e) => e.stopPropagation()}
-        className="cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-300 select-none font-mono"
-      >
-        other fields ({others.length})
-      </summary>
-      <pre
-        onClick={(e) => e.stopPropagation()}
-        className="mt-1 p-2 rounded-sm bg-zinc-100/60 dark:bg-zinc-900/60 overflow-x-auto whitespace-pre-wrap font-mono"
-      >
-        {JSON.stringify(Object.fromEntries(others), null, 2)}
-      </pre>
-    </details>
-  );
-}
-
 /** One row in the skim list. Compact caption, content gets full width. */
 function RowBlock({
   row,
@@ -258,7 +246,6 @@ function RowBlock({
   active,
   onSelect,
   defaultRaw,
-  pinnedFields,
 }: {
   row: Record<string, any>;
   idx: number;
@@ -266,11 +253,12 @@ function RowBlock({
   active: boolean;
   onSelect: () => void;
   defaultRaw: boolean;
-  pinnedFields: string[];
 }) {
   const messages = getMessages(row);
   const pin = usePinHandler();
   const [raw, toggleRaw] = useRawOverride(`row::${datasetPath}::${idx}`, defaultRaw);
+  const { meta, schemaKey: metaKey } = useRowMeta(row);
+  const metaCtx = useMetaCtx(row);
   return (
     <article
       onClick={(e) => {
@@ -305,6 +293,9 @@ function RowBlock({
         <span className="ml-3 text-zinc-400 dark:text-zinc-600">
           {messages.length} message{messages.length === 1 ? "" : "s"}
         </span>
+        <span className="ml-2 flex flex-wrap items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          {metaKey && <FieldHeaderChips value={meta} schemaKey={metaKey} fallbackHidden />}
+        </span>
         <div
           className="ml-auto flex items-center gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
           onClick={(e) => e.stopPropagation()}
@@ -324,7 +315,6 @@ function RowBlock({
         </pre>
       ) : (
         <div>
-          <PinnedFields row={row} fields={pinnedFields} />
           {messages.map((m, i) => (
             <MessageBlock
               key={i}
@@ -336,7 +326,7 @@ function RowBlock({
               defaultRaw={defaultRaw}
             />
           ))}
-          <OtherFields row={row} hide={pinnedFields} />
+          <RowMeta row={row} ctx={metaCtx} />
         </div>
       )}
     </article>
@@ -345,8 +335,8 @@ function RowBlock({
 
 /** One group member in the grouped feed: fetches the row by idx and renders it
  *  as a full RowBlock (the GroupCard supplies the group value + cycler header). */
-function ChatMember({ idx, datasetPath, defaultRaw, pinnedFields }: {
-  idx: number; datasetPath: string; defaultRaw: boolean; pinnedFields: string[];
+function ChatMember({ idx, datasetPath, defaultRaw }: {
+  idx: number; datasetPath: string; defaultRaw: boolean;
 }) {
   const v = useViewerState();
   const { data: row } = useQuery({
@@ -366,13 +356,12 @@ function ChatMember({ idx, datasetPath, defaultRaw, pinnedFields }: {
       active={idx === v.row_idx}
       onSelect={() => api.goto(idx)}
       defaultRaw={defaultRaw}
-      pinnedFields={pinnedFields}
     />
   );
 }
 
-function ListMode({ datasetPath, defaultRaw, pinnedFields }: {
-  datasetPath: string; defaultRaw: boolean; pinnedFields: string[];
+function ListMode({ datasetPath, defaultRaw }: {
+  datasetPath: string; defaultRaw: boolean;
 }) {
   const v = useViewerState();
   const { url } = useUrlSync();
@@ -405,7 +394,7 @@ function ListMode({ datasetPath, defaultRaw, pinnedFields }: {
     return (
       <GroupedFeed
         renderMember={(idx) => (
-          <ChatMember idx={idx} datasetPath={datasetPath} defaultRaw={defaultRaw} pinnedFields={pinnedFields} />
+          <ChatMember idx={idx} datasetPath={datasetPath} defaultRaw={defaultRaw} />
         )}
       />
     );
@@ -439,7 +428,6 @@ function ListMode({ datasetPath, defaultRaw, pinnedFields }: {
                 active={idx === v.row_idx}
                 onSelect={() => api.goto(idx)}
                 defaultRaw={defaultRaw}
-                pinnedFields={pinnedFields}
               />
             </div>
           );
@@ -449,8 +437,8 @@ function ListMode({ datasetPath, defaultRaw, pinnedFields }: {
   );
 }
 
-function SingleMode({ datasetPath, defaultRaw, pinnedFields }: {
-  datasetPath: string; defaultRaw: boolean; pinnedFields: string[];
+function SingleMode({ datasetPath, defaultRaw }: {
+  datasetPath: string; defaultRaw: boolean;
 }) {
   const v = useViewerState();
   const [raw, toggleRaw] = useRawOverride(`row::${datasetPath}::${v.row_idx}`, defaultRaw);
@@ -460,6 +448,8 @@ function SingleMode({ datasetPath, defaultRaw, pinnedFields }: {
   const row = page?.rows[0];
   const realIdx = page?.indices[0];
   const messages = useMemo(() => getMessages(row), [row]);
+  const { meta, schemaKey: metaKey } = useRowMeta(row);
+  const metaCtx = useMetaCtx(row);
 
   // Grouped single view: a cycler walks the members of the current row's group
   // (via nav, which DatasetHeader publishes); j/k step between groups.
@@ -496,6 +486,7 @@ function SingleMode({ datasetPath, defaultRaw, pinnedFields }: {
         <span className="text-zinc-400 dark:text-zinc-600">
           {messages.length} message{messages.length === 1 ? "" : "s"}
         </span>
+        {metaKey && <FieldHeaderChips value={meta} schemaKey={metaKey} fallbackHidden />}
         <div className="ml-auto flex items-center gap-2">
           <MarkInline path={datasetPath} idx={v.row_idx} />
           <CopyButton variant="markdown" value={() => rowToMarkdown(row)} title="copy conversation (markdown)" />
@@ -510,7 +501,6 @@ function SingleMode({ datasetPath, defaultRaw, pinnedFields }: {
           </pre>
         ) : (
           <>
-            <PinnedFields row={row} fields={pinnedFields} />
             {messages.map((m, i) => (
               <MessageBlock
                 key={i}
@@ -522,7 +512,7 @@ function SingleMode({ datasetPath, defaultRaw, pinnedFields }: {
                 defaultRaw={defaultRaw}
               />
             ))}
-            <OtherFields row={row} hide={pinnedFields} />
+            <RowMeta row={row} ctx={metaCtx} />
           </>
         )}
       </div>
@@ -564,46 +554,27 @@ export default function ChatRowView() {
   // Whether reasoning (thinking) panels start unfolded. Dataset-independent —
   // a reading-mode preference, not a per-file one.
   const [reasoningOpen, setReasoningOpen] = usePref<boolean>("reasoningOpen", false);
-  // Per-dataset pinned metadata fields. Same prefs plumbing as everything else —
-  // the CLI's `sscope view fields …` commands write to the same key directly.
-  const [pinnedFields, setPinnedFields] = usePref<string[]>(
-    v.dataset_path ? pinnedFieldsKey(v.dataset_path) : "pinnedFields::__none__",
-    [],
-  );
-  const [pinPickerOpen, setPinPickerOpen] = useState(false);
 
   if (!v.dataset_path) {
     return <div className="p-12 text-zinc-500 text-sm">no dataset</div>;
   }
 
-  // Available columns to pin = every scalar field DuckDB inferred MINUS
-  // `messages` and the synthetic `__idx`. Keep the list deterministic so
-  // the dropdown ordering doesn't shuffle on each render.
-  const pinnableColumns = (v.columns ?? [])
-    .filter((c) => c !== "messages" && c !== "__idx")
-    .slice()
-    .sort();
+  // The field-layout toolbar keys off the row's metadata schema, which the
+  // column list gives us without waiting on a row fetch (`__idx` is synthetic).
+  const metaColumns = (v.columns ?? []).filter((c) => c !== "messages" && c !== "__idx");
 
   const mode = url.viewMode;
   return (
     <div className="h-full flex flex-col bg-zinc-50 dark:bg-zinc-950">
       <div className="flex items-center gap-3 px-4 py-1.5 border-b border-zinc-200/60 dark:border-zinc-800/70 text-[11px] font-mono text-zinc-500">
         {mode === "list" && <ListCount />}
-        <button
-          onClick={() => setPinPickerOpen((o) => !o)}
-          title="pin metadata fields to show above each row"
-          className={cn(
-            "ml-auto p-1 rounded flex items-center gap-1 transition-colors",
-            (pinnedFields.length > 0 || pinPickerOpen)
-              ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
-              : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200",
-          )}
-        >
-          <Pin size={12} />
-          {pinnedFields.length > 0 && (
-            <span className="tabular-nums">{pinnedFields.length}</span>
-          )}
-        </button>
+        <span className="ml-auto flex items-center">
+          <FieldLayoutTools
+            schemaKey={metaColumns.length ? fieldSchemaKey(metaColumns) : null}
+            present={metaColumns}
+            fallbackHidden
+          />
+        </span>
         <button
           onClick={() => setReasoningOpen(!reasoningOpen)}
           title={reasoningOpen ? "reasoning unfolded by default (click to fold)" : "reasoning folded by default (click to unfold all)"}
@@ -631,29 +602,11 @@ export default function ChatRowView() {
         <RawJsonToggle value={url.raw} onChange={setRaw} title={url.raw ? "show parsed messages" : "show raw JSON for every row"} />
         <ModeToggle value={mode} onChange={setViewMode} />
       </div>
-      {pinPickerOpen && (
-        <div className="px-4 py-2 border-b border-zinc-200/60 dark:border-zinc-800/70 bg-amber-500/5">
-          <div className="flex items-center gap-2 mb-1.5 text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-300">
-            <Pin size={10} />
-            pin fields to show above each row
-            <span className="text-zinc-500 normal-case tracking-normal lowercase">
-              (also: <code>sscope view fields add &lt;col&gt;</code>)
-            </span>
-          </div>
-          <MultiSelectChips
-            options={pinnableColumns}
-            value={pinnedFields}
-            onChange={setPinnedFields}
-            placeholder="type a column name…"
-            emptyMessage="no more columns to pin"
-          />
-        </div>
-      )}
       <div className="flex-1 min-h-0" key={`${defaultExpand}:${reasoningOpen}`}>
         {mode === "list" ? (
-          <ListMode datasetPath={v.dataset_path} defaultRaw={url.raw} pinnedFields={pinnedFields} />
+          <ListMode datasetPath={v.dataset_path} defaultRaw={url.raw} />
         ) : (
-          <SingleMode datasetPath={v.dataset_path} defaultRaw={url.raw} pinnedFields={pinnedFields} />
+          <SingleMode datasetPath={v.dataset_path} defaultRaw={url.raw} />
         )}
       </div>
     </div>
