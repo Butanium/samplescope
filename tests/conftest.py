@@ -110,6 +110,24 @@ def dataset_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     (d / "records.jsonl").write_text(_records("item"))
     (d / "records2.jsonl").write_text(_records("other"))
+    # Three nested schemas for the cross-schema layout-inheritance smoke:
+    # iso_narrow ⊂ iso_base ⊂ iso_wide. Deliberately field-named so none of
+    # them is a subset/superset of any other fixture — arranging them must not
+    # perturb the records.jsonl-based tests (layouts are schema-keyed, and
+    # inheritance makes *related* schemas influence each other by design).
+    def _iso(fields: list[str]) -> str:
+        blurb = "Long free-text so the sniffer routes this to the json card view. " * 4
+        return (
+            "\n".join(
+                json.dumps({f: (blurb if f == "blurb" else f"{f}-{i}") for f in fields})
+                for i in range(4)
+            )
+            + "\n"
+        )
+
+    (d / "iso_narrow.jsonl").write_text(_iso(["alpha", "beta", "blurb"]))
+    (d / "iso_base.jsonl").write_text(_iso(["alpha", "beta", "gamma", "blurb"]))
+    (d / "iso_wide.jsonl").write_text(_iso(["alpha", "beta", "gamma", "blurb", "delta"]))
     # A >100-row json-card file so the infinite-scroll feed must paginate (the
     # frontend pulls 100 rows/page → this forces ≥3 pages).
     (d / "big.jsonl").write_text(

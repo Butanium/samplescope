@@ -338,27 +338,78 @@ def test_json_string_cell_expands(page: Page, server: str, dataset_dir):
         f.unlink(missing_ok=True)
 
 
+def _clean_layout(main) -> None:
+    """Drop any schema-keyed layout an earlier smoke (or run) left behind. The
+    toolbar's default-policy control is always mounted for a card view, so wait
+    on it before the non-auto-waiting `count()`."""
+    expect(main.get_by_title(re.compile("^fold every field"))).to_be_visible()
+    reset = main.get_by_title(re.compile("^reset field"))
+    if reset.count() > 0:
+        reset.click()
+
+
 def test_json_hide_all_fields(page: Page, server: str):
     page.goto(server)
     open_file(page, "records.jsonl")
     main = page.get_by_role("main")
-    # Earlier smokes leave schema-keyed layout prefs behind — start clean.
-    # (Wait for the toolbar first: `count()` doesn't auto-wait.)
-    hide_all = main.get_by_title(re.compile("^hide every field"))
-    reset = main.get_by_title(re.compile("^reset field"))
-    expect(hide_all.or_(reset).first).to_be_visible()
-    if reset.count() > 0:
-        reset.click()
+    _clean_layout(main)
     expect(main.get_by_text("response:", exact=True).first).to_be_visible()
     try:
-        # One click folds every field into the drawer; the body empties.
-        main.get_by_title(re.compile("^hide every field")).click()
+        # Flipping the default to "hide" folds every field into the drawer.
+        main.get_by_title(re.compile("^fold every field")).click()
         expect(main.get_by_text(re.compile("5 more fields")).first).to_be_visible()
         expect(main.get_by_text("response:", exact=True)).to_have_count(0)
         # Cherry-pick one back from the drawer.
         main.get_by_text(re.compile("5 more fields")).first.click()
         main.get_by_title("show this field").first.click()
         expect(main.get_by_text(re.compile("4 more fields")).first).to_be_visible()
+        # Flipping back to "show" is the bulk un-hide.
+        main.get_by_title(re.compile("^show every field")).click()
+        expect(main.get_by_text(re.compile("more field"))).to_have_count(0)
     finally:
         main.get_by_title(re.compile("^reset field")).click()
     expect(main.get_by_text("response:", exact=True).first).to_be_visible()
+
+
+def test_json_layout_inherited_by_related_schema(page: Page, server: str):
+    """A schema with no saved layout borrows the closest compatible one:
+    iso_narrow ⊂ iso_base ⊂ iso_wide (see conftest). Fields the donor doesn't
+    mention follow the borrowed layout's show/hide default."""
+    page.goto(server)
+    main = page.get_by_role("main")
+    try:
+        # Arrange iso_base {alpha, beta, gamma, blurb}: hide by default, keep blurb.
+        open_file(page, "iso_base.jsonl")
+        _clean_layout(main)
+        main.get_by_title(re.compile("^fold every field")).click()
+        expect(main.get_by_text(re.compile("4 more fields")).first).to_be_visible()
+        main.get_by_text(re.compile("4 more fields")).first.click()
+        main.get_by_title("show this field").nth(3).click()  # blurb, last in natural order
+        expect(main.get_by_text("blurb:", exact=True).first).to_be_visible()
+        expect(main.get_by_text(re.compile("3 more fields")).first).to_be_visible()
+
+        # Superset donor: iso_narrow {alpha, beta, blurb} ⊂ iso_base, so every
+        # one of its fields is placed by the borrowed layout — blurb shown, 2 folded.
+        open_file(page, "iso_narrow.jsonl")
+        expect(main.get_by_text("inherited", exact=True)).to_be_visible()
+        expect(main.get_by_text("blurb:", exact=True).first).to_be_visible()
+        expect(main.get_by_text(re.compile("2 more fields")).first).to_be_visible()
+
+        # Subset donor: iso_wide {…, delta} ⊃ iso_base. `delta` is unplaced by
+        # the donor, so it follows its hide-by-default → 4 folded, blurb shown.
+        open_file(page, "iso_wide.jsonl")
+        expect(main.get_by_text("inherited", exact=True)).to_be_visible()
+        expect(main.get_by_text("blurb:", exact=True).first).to_be_visible()
+        expect(main.get_by_text(re.compile("4 more fields")).first).to_be_visible()
+
+        # Editing the borrowed layout makes it this schema's own — the marker goes.
+        main.get_by_text(re.compile("4 more fields")).first.click()
+        main.get_by_title("show this field").last.click()  # delta
+        expect(main.get_by_text("inherited", exact=True)).to_have_count(0)
+        expect(main.get_by_text("delta:", exact=True).first).to_be_visible()
+    finally:
+        for name in ("iso_base.jsonl", "iso_narrow.jsonl", "iso_wide.jsonl"):
+            open_file(page, name)
+            reset = main.get_by_title(re.compile("^reset field"))
+            if reset.count() > 0:
+                reset.click()

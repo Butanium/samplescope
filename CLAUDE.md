@@ -121,23 +121,40 @@ aren't self-evident from the code.
   Each top-level field is in one of three states — **body** (the card stack),
   **drawer** (folded into "N more fields"), or **header** (a compact chip next
   to the row index) — plus a drag-reorder of the body fields. `useFieldLayout`
-  (`web/src/components/views/fieldLayout.tsx`) persists `{order, hidden, header}`.
-  The pref key is the
+  (`web/src/components/views/fieldLayout.tsx`) persists
+  `{order, hidden, shown, header, defaultHidden, self}`. The pref key is the
   *schema*, not the path: `json.fields:<fieldSchemaKey>`, an FNV-1a hash of the
   **sorted top-level field names**. So arranging one `{prompt,response,score}`
   file carries to every file with that same field set (sibling result dumps,
   reruns) — and naturally to every sample within a file. `SingleMode`,
   `RecordBlock`, and `FieldHeaderChips` all derive the same key from their row.
-  `hidden`/`header` are kept mutually exclusive (each toggle clears the other);
   `normalizeOrder` folds in present-but-unseen keys (natural order, appended)
   and drops stale ones, so a partial persisted `order` never makes a new field
   vanish. Drag uses native HTML5 DnD armed off the grip handle's mousedown (so a
   card header's collapse-click is untouched); the drag *source* lives in a ref,
   not state, because the drop event can fire before React commits the
-  dragstart's `setState`. The toolbar's "↺ fields" resets the schema's layout;
-  "hide all" folds every non-header field into the drawer in one click (the
-  wide-schema flow: empty the body, cherry-pick back from "N more fields").
-  Reads tolerate older two-field (`{order, hidden}`) prefs via `?? []`.
+  dragstart's `setState`. Reads tolerate older prefs (`{order, hidden}`, no
+  `header`/`shown`) via `?? []`.
+
+  **`defaultHidden` decides where *unplaced* fields go**, and `hidden`/`shown`
+  are only exceptions to it — resolution is header → shown → hidden →
+  defaultHidden (header is an orthogonal axis: pin/unpin leaves the
+  hidden/shown exception alone). The toolbar's `fields: show | hide` flips that
+  policy *and* acts as bulk show-all / hide-all, because flipping clears the
+  opposing exception list. That flag is also what makes **cross-schema
+  inheritance** well-defined: a schema with no layout of its own borrows the
+  closest compatible saved one (`findInheritable`) — a **superset** donor
+  (places every field we have) preferred over a **subset** donor, then closest
+  field-count, ties broken on the key; fields the donor never mentions fall to
+  its `defaultHidden`. Donor discovery needs field *names*, which the hashed
+  pref key can't yield, so every save also records `schemaKey → sorted names`
+  in the `json.fieldSchemas` registry pref (read out-of-band via
+  `prefs.readPref`; reactivity is free because any pref write notifies every
+  `usePref`). The first edit to a borrowed layout materializes it under the
+  schema's own key (`save` spreads the *effective* layout, pruned to present
+  keys). `self: true` is stamped by every save **including reset**, which is
+  what makes "↺ fields" mean *stay natural* rather than instantly re-inheriting
+  from the neighbour it just dropped.
 
 - **The JSON sample view is three files (a clean DAG).** `views/jsonCards.tsx`
   is the leaf: the generic JSON→cards renderer (`ValueNode`/`Card`/`ScalarField`

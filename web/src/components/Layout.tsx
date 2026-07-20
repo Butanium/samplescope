@@ -150,8 +150,12 @@ export default function Layout() {
           )}
         </div>
       </main>
+      {/* The rail's box spans the whole button column, so without
+          pointer-events-none it swallows clicks in its gaps — at a ~1280px
+          window that shadowed the JSON cards' right-edge pin/hide controls
+          entirely. Only the buttons themselves should take the pointer. */}
       <div
-        className="fixed bottom-3 flex flex-col gap-2 z-30 transition-[right] duration-150"
+        className="fixed bottom-3 flex flex-col gap-2 z-30 transition-[right] duration-150 pointer-events-none [&>*]:pointer-events-auto"
         style={{ right: drawer === "none" ? 12 : drawerWidth + 16 }}
       >
         {!bubblesCollapsed && (

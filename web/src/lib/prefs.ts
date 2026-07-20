@@ -88,6 +88,17 @@ function subscribe(cb: () => void) {
   };
 }
 
+/**
+ * One-shot read of a pref outside React — for looking at *other* keys than the
+ * one a component subscribes to (e.g. scanning sibling schema layouts). Shares
+ * `readLocal`'s memo, so repeated reads of an unchanged key are free and
+ * referentially stable. Not reactive on its own: pair it with a `usePref` in
+ * the same component, since any pref write notifies every subscriber.
+ */
+export function readPref<T>(key: string, fallback: T): T {
+  return readLocal(key, fallback);
+}
+
 /** A controlled localStorage-backed setting, mirrored to the backend. */
 export function usePref<T>(key: string, fallback: T): [T, (next: T) => void] {
   // Same memoized read for client + server snapshots — both must be stable
