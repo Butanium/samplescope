@@ -73,7 +73,7 @@ def test_json_field_hide_folds_and_persists(page: Page, server: str):
     expect(main.get_by_text("response:", exact=True).first).to_be_visible()
     expect(main.get_by_text(re.compile("more field"))).to_have_count(0)
     # Hide the first field → it folds into a "1 more field" drawer.
-    main.get_by_title(re.compile("^hide")).first.click()
+    main.get_by_title(re.compile("^hide — fold")).first.click()
     expect(main.get_by_text(re.compile("more field")).first).to_be_visible()
     # The choice is a schema-keyed pref: it survives a reload.
     page.reload()
@@ -99,7 +99,7 @@ def test_json_field_layout_shared_across_same_schema(page: Page, server: str):
     open_file(page, "records.jsonl")
     main = page.get_by_role("main")
     expect(main.get_by_text("response:", exact=True).first).to_be_visible()
-    main.get_by_title(re.compile("^hide")).first.click()
+    main.get_by_title(re.compile("^hide — fold")).first.click()
     expect(main.get_by_text(re.compile("more field")).first).to_be_visible()
     # records2.jsonl has the SAME field set → it inherits the layout, no edits.
     open_file(page, "records2.jsonl")
@@ -343,7 +343,10 @@ def test_json_hide_all_fields(page: Page, server: str):
     open_file(page, "records.jsonl")
     main = page.get_by_role("main")
     # Earlier smokes leave schema-keyed layout prefs behind — start clean.
+    # (Wait for the toolbar first: `count()` doesn't auto-wait.)
+    hide_all = main.get_by_title(re.compile("^hide every field"))
     reset = main.get_by_title(re.compile("^reset field"))
+    expect(hide_all.or_(reset).first).to_be_visible()
     if reset.count() > 0:
         reset.click()
     expect(main.get_by_text("response:", exact=True).first).to_be_visible()
