@@ -134,7 +134,9 @@ aren't self-evident from the code.
   vanish. Drag uses native HTML5 DnD armed off the grip handle's mousedown (so a
   card header's collapse-click is untouched); the drag *source* lives in a ref,
   not state, because the drop event can fire before React commits the
-  dragstart's `setState`. The toolbar's "↺ fields" resets the schema's layout.
+  dragstart's `setState`. The toolbar's "↺ fields" resets the schema's layout;
+  "hide all" folds every non-header field into the drawer in one click (the
+  wide-schema flow: empty the body, cherry-pick back from "N more fields").
   Reads tolerate older two-field (`{order, hidden}`) prefs via `?? []`.
 
 - **The JSON sample view is three files (a clean DAG).** `views/jsonCards.tsx`

@@ -336,3 +336,26 @@ def test_json_string_cell_expands(page: Page, server: str, dataset_dir):
         expect(main.get_by_text("verdict:", exact=True)).to_be_visible()
     finally:
         f.unlink(missing_ok=True)
+
+
+def test_json_hide_all_fields(page: Page, server: str):
+    page.goto(server)
+    open_file(page, "records.jsonl")
+    main = page.get_by_role("main")
+    # Earlier smokes leave schema-keyed layout prefs behind — start clean.
+    reset = main.get_by_title(re.compile("^reset field"))
+    if reset.count() > 0:
+        reset.click()
+    expect(main.get_by_text("response:", exact=True).first).to_be_visible()
+    try:
+        # One click folds every field into the drawer; the body empties.
+        main.get_by_title(re.compile("^hide every field")).click()
+        expect(main.get_by_text(re.compile("5 more fields")).first).to_be_visible()
+        expect(main.get_by_text("response:", exact=True)).to_have_count(0)
+        # Cherry-pick one back from the drawer.
+        main.get_by_text(re.compile("5 more fields")).first.click()
+        main.get_by_title("show this field").first.click()
+        expect(main.get_by_text(re.compile("4 more fields")).first).to_be_visible()
+    finally:
+        main.get_by_title(re.compile("^reset field")).click()
+    expect(main.get_by_text("response:", exact=True).first).to_be_visible()

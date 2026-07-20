@@ -17,7 +17,7 @@ import { ValueNode, isPlainObject, type Json, type NodeCtx } from "./jsonCards";
 import {
   TopLevelObject,
   FieldHeaderChips,
-  FieldLayoutReset,
+  FieldLayoutTools,
   fieldSchemaKey,
 } from "./fieldLayout";
 
@@ -113,6 +113,7 @@ function SingleMode() {
 
   const setAll = (openAll: boolean) => { setDefaultOpen(openAll); setGen((g) => g + 1); };
   const schemaKey = isPlainObject(data) ? fieldSchemaKey(Object.keys(data)) : null;
+  const presentKeys = isPlainObject(data) ? Object.keys(data) : null;
 
   // Grouped single view: one group at a time. A cycler walks the members of the
   // current row's group (via nav, which also drives [ ] / j-k); j/k step groups.
@@ -123,7 +124,7 @@ function SingleMode() {
     <div className="h-full flex flex-col">
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-800 text-xs">
         <ExpandMdControls markdown={markdown} setMarkdown={setMarkdown} setAll={setAll} />
-        <FieldLayoutReset schemaKey={schemaKey} />
+        <FieldLayoutTools schemaKey={schemaKey} present={presentKeys} />
         <div className="ml-auto flex items-center gap-1.5">
           {data && <CopyButton variant="json" value={() => JSON.stringify(data, null, 2)} title="copy the whole row as JSON" />}
           <RawJsonToggle value={raw} onChange={setRaw} title={raw ? "show card view" : "show raw JSON"} />
@@ -183,6 +184,7 @@ function JsonMember({
   if (!data) return <div className="px-3 py-4 text-zinc-500 text-sm">loading…</div>;
   const ctx: NodeCtx = { markdown, ctxRow: data, defaultOpen, gen };
   const schemaKey = isPlainObject(data) ? fieldSchemaKey(Object.keys(data)) : null;
+  const presentKeys = isPlainObject(data) ? Object.keys(data) : null;
   return (
     <div className="px-2 py-2">
       {isPlainObject(data) && schemaKey ? (
@@ -235,12 +237,13 @@ function ListMode() {
 
   const setAll = (openAll: boolean) => { setDefaultOpen(openAll); setGen((g) => g + 1); };
   const schemaKey = isPlainObject(rows[0]) ? fieldSchemaKey(Object.keys(rows[0])) : null;
+  const presentKeys = isPlainObject(rows[0]) ? Object.keys(rows[0]) : null;
 
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-800 text-xs">
         <ExpandMdControls markdown={markdown} setMarkdown={setMarkdown} setAll={setAll} />
-        <FieldLayoutReset schemaKey={schemaKey} />
+        <FieldLayoutTools schemaKey={schemaKey} present={presentKeys} />
         {!grouped && (
           <span className="ml-2 text-[11px] text-zinc-400 dark:text-zinc-600">
             showing {rows.length} of {totalFiltered}
