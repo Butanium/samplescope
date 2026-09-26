@@ -64,3 +64,18 @@ instance over a real research repo (read-only).
   diffs: two messages named a private research column and a home-dir path and
   were reworded with `git filter-branch --msg-filter` over
   `origin/master..HEAD` (unpushed only).
+- **Floating rail over text.** The view pane reserves the rail's footprint as
+  right padding (56/44px) and the theme toggle became a one-button cycler, so
+  the rail stays one button wide. The pane-level gutter also shifts the view's
+  own toolbars left; accepted, since the rail sits over this pane whether or
+  not a drawer is open.
+- **Tree ignore defaults.** `.venv/.git/node_modules/__pycache__` are a built-in
+  part of the ignore list (client-side, `BUILTIN_IGNORE`), lifted by the same
+  master checkbox. The server stops walking `.git`/`__pycache__` only — the
+  others must still be listed so the checkbox can show them. Warm scan time
+  (~2.3s for 5.6k entries) is not the walk; not investigated further.
+- **Stats latency** was N×re-parse of the source (several queries per column
+  over the raw subquery). A per-request temp table on the cursor's own
+  connection fixes it; byte-identical output checked on a real 12MB CSV.
+- **`.markdown` outer margins** made every one-line string field 16px taller
+  than numeric ones (the `<p>` margins stay inside a flex item).
