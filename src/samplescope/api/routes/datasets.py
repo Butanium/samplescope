@@ -155,16 +155,26 @@ _UNWALKED_DIRS = {".git", "__pycache__"}
 
 
 def _walk_files(root: Path):
+    # Extension check on the bare name first: a repo holds ~15x more files
+    # than datasets (79k vs 5.6k here), and building + stat-ing a Path for each
+    # was most of a 2.3 s scan.
+    known = _KNOWN_SUFFIXES
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in _UNWALKED_DIRS]
-        base = Path(dirpath)
         for f in filenames:
-            p = base / f
+            if os.path.splitext(f)[1].lower() not in known:
+                continue
+            p = Path(dirpath, f)
             if p.is_file():
                 yield p
 
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp"}
+# Everything `_classify` maps to a kind other than "other".
+_KNOWN_SUFFIXES = (
+    JSONL_SUFFIXES | CSV_SUFFIXES | MARKDOWN_SUFFIXES | IMAGE_SUFFIXES
+    | {".parquet", ".eval", ".json", ".pdf"}
+)
 
 
 def _classify(p: Path) -> FileKind:
