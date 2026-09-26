@@ -459,6 +459,24 @@ def test_chat_metadata_uses_shared_field_layout(page: Page, server: str):
             reset.click()
 
 
+def test_row_index_box_commits_typed_number(page: Page, server: str):
+    """Typed digits are a draft until Enter: a goto per keystroke raced the SSE
+    echo, so a fast "123" landed on row 3 and each Backspace jumped to row 0."""
+    page.goto(f"{server}/?path=big.jsonl&mode=single")
+    box = page.get_by_title(re.compile("^row index"))
+    expect(box).to_have_value("0")
+    box.click()
+    page.keyboard.type("123")
+    page.keyboard.press("Enter")
+    expect(page).to_have_url(re.compile(r"[?&]idx=123\b"))
+    # Esc drops the draft instead of navigating.
+    box.click()
+    page.keyboard.type("45")
+    page.keyboard.press("Escape")
+    expect(box).to_have_value("123")
+    expect(page).to_have_url(re.compile(r"[?&]idx=123\b"))
+
+
 def test_chat_metadata_stays_folded_beside_arranged_json_layout(page: Page, server: str):
     """A JSON-card layout records only the policy the user chose, so a chat file
     borrowing it (records.jsonl's fields ⊇ chat.jsonl's `label` metadata) keeps

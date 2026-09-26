@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "../lib/api";
 import { useViewerState } from "../lib/state";
 import { useUrlSync, type FilterTriple } from "../lib/url";
 import { nextIdx, prevIdx, setNavGroups } from "../lib/nav";
 import { useGroups } from "../lib/groups";
 import { cn, copyToClipboard } from "../lib/utils";
-import { Shuffle, ChevronLeft, ChevronRight, X, Filter, ArrowUp, ArrowDown, Layers } from "lucide-react";
+import { Shuffle, ChevronLeft, ChevronRight, X, Filter, ArrowUp, ArrowDown, ArrowUpDown, Layers } from "lucide-react";
 
 /** Human-readable label for a filter chip: `col = v` (exact), `col ≈ v` (text),
  *  `col ~ re` (regex); the column prefix is dropped when it matches any column. */
@@ -30,12 +30,17 @@ export default function DatasetHeader() {
   const [columnDraft, setColumnDraft] = useState("");
   const [isRegex, setIsRegex] = useState(false);
   const [pathCopied, setPathCopied] = useState(false);
+  const [idxDraft, setIdxDraft] = useState<string | null>(null);
+  const idxEscaped = useRef(false);
 
   if (!v.dataset_path) {
     return <div className="h-12 border-b border-zinc-200 dark:border-zinc-800 flex items-center px-3 text-xs text-zinc-500">no dataset open</div>;
   }
   const total = v.row_count;
   const idx = v.row_idx;
+  const slash = v.dataset_path.lastIndexOf("/");
+  const baseName = v.dataset_path.slice(slash + 1);
+  const dirName = slash > 0 ? v.dataset_path.slice(0, slash) : "";
   const filters = url.filters;
 
   // Append the editor's draft as a new chip (ignoring empty text); keep the
@@ -46,6 +51,17 @@ export default function DatasetHeader() {
     const triple: FilterTriple = [columnDraft || null, text, isRegex ? "regex" : "text"];
     setFilters([...filters, triple]);
     setTextDraft("");
+  };
+  const gotoClamped = (raw: string) => {
+    const n = Number(raw);
+    if (raw.trim() === "" || !Number.isFinite(n) || total <= 0) return;
+    const t = Math.max(0, Math.min(total - 1, Math.trunc(n)));
+    if (t !== idx) api.goto(t);
+  };
+  const commitIdxDraft = () => {
+    if (idxDraft == null) return;
+    setIdxDraft(null);
+    gotoClamped(idxDraft);
   };
   const removeAt = (i: number) => setFilters(filters.filter((_, j) => j !== i));
   // Clicking a chip's body loads it back into the editor (and removes it) so
@@ -63,7 +79,9 @@ export default function DatasetHeader() {
   return (
     <header className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 text-xs">
     <div className="h-12 flex items-center gap-2 px-3">
-      <div className="font-mono truncate flex-1 min-w-0 text-zinc-700 dark:text-zinc-300">
+      {/* Basename on top, directory below: a narrow header clips the tail of
+          the path, and the tail is what names the file. */}
+      <div className="flex-1 min-w-0 flex flex-col justify-center leading-tight font-mono text-zinc-700 dark:text-zinc-300">
         <span
           role="button"
           tabIndex={0}
@@ -73,25 +91,31 @@ export default function DatasetHeader() {
               setTimeout(() => setPathCopied(false), 1100);
             }
           }}
-          title={pathCopied ? "copied!" : "click to copy relative path"}
+          title={pathCopied ? "copied!" : `${v.dataset_path}\nclick to copy relative path`}
           className={cn(
-            "cursor-pointer hover:underline decoration-dotted underline-offset-2",
+            "truncate cursor-pointer hover:underline decoration-dotted underline-offset-2",
             pathCopied
               ? "text-emerald-600 dark:text-emerald-400"
               : "hover:text-emerald-700 dark:hover:text-emerald-400",
           )}
         >
-          {v.dataset_path}
+          {baseName}
         </span>
-        <span className="ml-2 text-zinc-400 dark:text-zinc-600">· {v.view_kind} · {total} rows</span>
-        {v.sql_mode === "selection" && v.sql_selection_count != null && (
-          <span className="ml-2 text-emerald-700 dark:text-emerald-400">
-            · SQL sel: {v.sql_selection_count}
-          </span>
-        )}
-        {v.sql_mode === "view" && (
-          <span className="ml-2 text-emerald-700 dark:text-emerald-400">· SQL view</span>
-        )}
+        <div className="flex min-w-0 text-[11px] text-zinc-400 dark:text-zinc-500">
+          {dirName && (
+            // rtl + trailing LRM: ellipsis eats the *start* of the directory.
+            <span className="truncate [direction:rtl] text-left" title={dirName}>{dirName + "/\u200E"}</span>
+          )}
+          <span className="shrink-0 whitespace-pre">{dirName ? " · " : ""}{v.view_kind} · {total} rows</span>
+          {v.sql_mode === "selection" && v.sql_selection_count != null && (
+            <span className="shrink-0 ml-2 text-emerald-700 dark:text-emerald-400">
+              · SQL sel: {v.sql_selection_count}
+            </span>
+          )}
+          {v.sql_mode === "view" && (
+            <span className="shrink-0 ml-2 text-emerald-700 dark:text-emerald-400">· SQL view</span>
+          )}
+        </div>
       </div>
       {pathCopied && (
         <span className="shrink-0 text-emerald-600 dark:text-emerald-400 font-mono">copied ✓</span>
@@ -106,9 +130,28 @@ export default function DatasetHeader() {
       </button>
       <input
         type="number"
-        value={idx}
-        onChange={(e) => api.goto(Number(e.target.value))}
-        className="w-20 px-1 py-0.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded outline-none focus:border-emerald-600"
+        value={idxDraft ?? idx}
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => {
+          // Spinner clicks / arrow keys step at once; typed digits are a draft
+          // until Enter or blur (a goto per keystroke raced the SSE echo).
+          if ((e.nativeEvent as InputEvent).inputType) setIdxDraft(e.target.value);
+          else gotoClamped(e.target.value);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commitIdxDraft();
+          else if (e.key === "Escape") {
+            idxEscaped.current = true; // the blur below runs before the reset renders
+            setIdxDraft(null);
+            e.currentTarget.blur();
+          }
+        }}
+        onBlur={() => {
+          if (idxEscaped.current) idxEscaped.current = false;
+          else commitIdxDraft();
+        }}
+        title="row index — type and press Enter"
+        className="w-16 px-1 py-0.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded outline-none focus:border-emerald-600"
       />
       <span className="text-zinc-400 dark:text-zinc-600">/ {total}</span>
       <button
@@ -144,7 +187,7 @@ export default function DatasetHeader() {
           onChange={(e) => setColumnDraft(e.target.value)}
           title="filter column ((any) = every column)"
           className={cn(
-            "max-w-[120px] px-1 py-0.5 bg-white dark:bg-zinc-900 border rounded font-mono text-[11px] outline-none focus:border-emerald-600",
+            "max-w-[96px] px-1 py-0.5 bg-white dark:bg-zinc-900 border rounded font-mono text-[11px] outline-none focus:border-emerald-600",
             columnDraft ? "border-emerald-500/60" : "border-zinc-200 dark:border-zinc-800",
           )}
         >
@@ -161,7 +204,7 @@ export default function DatasetHeader() {
             onKeyDown={(e) => e.key === "Enter" && applyDraft()}
             placeholder={isRegex ? "regex…" : "search…"}
             className={cn(
-              "w-48 pl-1.5 pr-7 py-0.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded outline-none focus:border-emerald-600",
+              "w-40 pl-1.5 pr-7 py-0.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded outline-none focus:border-emerald-600",
               isRegex ? "font-mono" : "font-sans",
             )}
           />
@@ -233,19 +276,19 @@ function SortControl({
   const choices = columns.filter((c) => c !== "__idx");
   return (
     <div className="flex items-center gap-1 border-l border-zinc-200 dark:border-zinc-800 pl-2 ml-1">
-      <span className="text-[10px] uppercase tracking-wide text-zinc-500">sort</span>
+      <ArrowUpDown size={13} className={cn(sortColumn ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-500")} />
       <select
         value={sortColumn ?? ""}
         onChange={(e) => api.setSort(e.target.value || null, sortDesc)}
         className={cn(
-          "max-w-[140px] px-1 py-0.5 bg-white dark:bg-zinc-900 border rounded font-mono text-[11px] outline-none focus:border-emerald-600",
+          "max-w-[112px] px-1 py-0.5 bg-white dark:bg-zinc-900 border rounded font-mono text-[11px] outline-none focus:border-emerald-600",
           sortColumn
             ? "border-emerald-500/60"
             : "border-zinc-200 dark:border-zinc-800",
         )}
         title="sort by column (clears shuffle)"
       >
-        <option value="">—</option>
+        <option value="">sort: —</option>
         {choices.map((c) => (
           <option key={c} value={c}>{c}</option>
         ))}
@@ -283,7 +326,7 @@ function GroupControl({
         value={groupBy ?? ""}
         onChange={(e) => onChange(e.target.value || null)}
         className={cn(
-          "max-w-[140px] px-1 py-0.5 bg-white dark:bg-zinc-900 border rounded font-mono text-[11px] outline-none focus:border-emerald-600",
+          "max-w-[112px] px-1 py-0.5 bg-white dark:bg-zinc-900 border rounded font-mono text-[11px] outline-none focus:border-emerald-600",
           groupBy ? "border-emerald-500/60" : "border-zinc-200 dark:border-zinc-800",
         )}
         title="group samples by a column's value (navigation overlay)"
