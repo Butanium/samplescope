@@ -535,3 +535,21 @@ def test_prompt_completion_file_renders_as_chat(page: Page, server: str):
     expect(main.get_by_text(re.compile(r"^1 more field")).first).to_be_visible()  # grade
     main.get_by_role("button", name="cards", exact=True).click()
     expect(main.get_by_text("prompt:", exact=True).first).to_be_visible()
+
+
+def test_tree_hides_tooling_dirs_until_ignore_unchecked(page: Page, server: str, dataset_dir):
+    """.venv / node_modules content is hidden while the ignore list is on (even
+    with no user patterns); the master checkbox shows it."""
+    junk = dataset_dir / ".venv" / "lib" / "pkg_meta.json"
+    junk.parent.mkdir(parents=True, exist_ok=True)
+    junk.write_text("{}")
+    try:
+        page.goto(server)
+        aside = page.get_by_role("complementary").first
+        expect(aside.get_by_text("chat.jsonl", exact=True).first).to_be_visible()
+        expect(aside.get_by_text(".venv", exact=True)).to_have_count(0)
+        aside.locator("input[type=checkbox]").first.uncheck()
+        expect(aside.get_by_text(".venv", exact=True).first).to_be_visible()
+    finally:
+        httpx.put(f"{server}/api/prefs/tree.ignoreEnabled", json={"value": "true"})
+        junk.unlink()

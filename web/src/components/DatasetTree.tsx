@@ -39,6 +39,13 @@ function buildTree(entries: DatasetEntry[]): Node {
   return root;
 }
 
+// Tooling directories are hidden while the ignore list is on (the same master
+// checkbox shows them); they held more "datasets" than the research itself.
+const BUILTIN_IGNORE_NAMES = [".venv", ".git", "node_modules", "__pycache__"];
+const BUILTIN_IGNORE = new RegExp(
+  `(^|/)(${BUILTIN_IGNORE_NAMES.map((n) => n.replace(/[.]/g, "\\.")).join("|")})/`,
+);
+
 export default function DatasetTree() {
   const v = useViewerState();
   const [filter, setFilter] = useState("");
@@ -128,7 +135,7 @@ export default function DatasetTree() {
       const opened = new Set(openedFiles);
       textPass = textPass.filter((d) => opened.has(d.path));
     }
-    const res = ignoreEnabled ? (compiled.map((c) => c.re).filter(Boolean) as RegExp[]) : [];
+    const res = ignoreEnabled ? [BUILTIN_IGNORE, ...(compiled.map((c) => c.re).filter(Boolean) as RegExp[])] : [];
     if (res.length === 0) return { filtered: textPass, ignoredCount: 0 };
     const kept = textPass.filter((d) => !res.some((re) => re.test(d.path)));
     return { filtered: kept, ignoredCount: textPass.length - kept.length };
@@ -298,16 +305,15 @@ export default function DatasetTree() {
             {ignoreOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             <span>ignore</span>
             <span className="ml-auto normal-case tracking-normal text-[11px] text-zinc-400 dark:text-zinc-600">
-              {ignorePatterns.length === 0
-                ? "no patterns"
-                : !ignoreEnabled
-                  ? `${ignorePatterns.length} off`
-                  : `${ignoredCount} hidden`}
+              {!ignoreEnabled ? "off" : ignoredCount > 0 ? `${ignoredCount} hidden` : "none hidden"}
             </span>
           </button>
         </div>
         {ignoreOpen && (
           <div className="mt-2 space-y-1">
+            <div className="text-[11px] text-zinc-500" title={String(BUILTIN_IGNORE)}>
+              always, while on: <span className="font-mono">{BUILTIN_IGNORE_NAMES.join(" ")}</span>
+            </div>
             {compiled.map((c, i) => (
               <div key={i} className="flex items-center gap-1">
                 <input

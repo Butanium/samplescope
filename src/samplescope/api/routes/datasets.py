@@ -127,9 +127,7 @@ def list_datasets() -> list[DatasetEntry]:
     for root in SETTINGS.scan_roots:
         if not root.exists():
             continue
-        for p in sorted(root.rglob("*")):
-            if not p.is_file():
-                continue
+        for p in sorted(_walk_files(root)):
             kind = _classify(p)
             if kind == "other":
                 continue
@@ -147,6 +145,22 @@ def list_datasets() -> list[DatasetEntry]:
                 )
             )
     return out
+
+
+# Never hold datasets and are large (a repo's .git): not walked at all. Other
+# tooling dirs (.venv, node_modules) are listed and hidden client-side, so the
+# tree's ignore toggle can still show them.
+_UNWALKED_DIRS = {".git", "__pycache__"}
+
+
+def _walk_files(root: Path):
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _UNWALKED_DIRS]
+        base = Path(dirpath)
+        for f in filenames:
+            p = base / f
+            if p.is_file():
+                yield p
 
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp"}
