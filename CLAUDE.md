@@ -189,12 +189,14 @@ aren't self-evident from the code.
   onto).
 
 - **Filters are an AND-composed list, in two representations.** Server state
-  (`ViewerState.filters`) is compiled `[{column, regex}]` — each entry is one
-  `regexp_matches` QUALIFY clause in `_build_rows_query`; `POST
+  (`ViewerState.filters`) is compiled `[{column, regex[, op, value]}]` — each
+  entry is one QUALIFY clause in `_build_rows_query`: `regexp_matches`, or with
+  `op` set a numeric `TRY_CAST(col AS DOUBLE) <op> ?` (typed as `>= 3` in the
+  header box with a column picked; URL triple mode `cmp`); `POST
   /api/datasets/filter` is a FULL REPLACE (CLI `filter`/`rm-filter` do
   read-modify-write; `clear-filter` posts `[]`). The URL keeps prettier
   `[column, text, mode]` triples (`filters=` JSON param; mode ∈
-  text|regex|exact — exact compiles to `^escaped$`, authored by the stats
+  text|regex|exact|cmp — exact compiles to `^escaped$`, authored by the stats
   view's click-to-filter, which *toggles* the chip) and
   `url.ts:compileTriple` is the single lowering seam. Legacy single-filter
   survives twice over: old `q`/`qcol`/`qmode` URLs migrate on read, and the
@@ -288,6 +290,16 @@ aren't self-evident from the code.
   `display="summarized"` the SDK returns encrypted-only ThinkingBlocks
   (text empty, signature populated) and the UI's collapsible looks broken.
   No block at all = adaptive judged the prompt trivial; not a bug.
+
+- **Chat sessions are subprocesses; they are reaped and resumed lazily.**
+  Each live session is a `claude` process (~185 MB). `chat.py` disconnects
+  sessions idle > `SAMPLESCOPE_CHAT_IDLE_MINUTES` (30; 4x mid-turn) and ends
+  their streams with `idle_closed`; the tab stays detached until the next send,
+  whose 404 re-attaches (`ChatTab.send`). The drawer re-attaches a tab only when
+  it is first shown, and `ChatTab` opens its stream then too — so restored tabs
+  cost nothing until looked at. Resume is serialized per session id, and a
+  session with no user message restarts fresh (claude writes no transcript to
+  resume from before the first message).
 
 - **Chat history survives drawer close/reopen.** `ChatTab` rehydrates from
   `/api/chat/sessions/{id}/history` on every mount. `readOnlyHistorical`

@@ -18,6 +18,11 @@ path. The URL triple would need a 4th mode (`range`) or a separate param.
 Scoped, but touches the filter schema end-to-end (models, state, url.ts,
 compileTriple, CLI). — fable, 2026-07-20
 
+Update 2026-09-26 (opus-5.5): comparison filters exist now (`op`/`value` on
+FilterSpec, URL mode `cmp`, typed as `>= 3` in the header box). A bin click can
+author the pair `[col, ">= lo", "cmp"]` + `[col, "< hi", "cmp"]`; what's left is
+the click handler and toggling the pair off as a unit.
+
 ## `sscope view fields`: expose the show/hide default + body/drawer, not just pins
 
 The CLI now drives the *shared* field layout (chat + JSON cards), but only its

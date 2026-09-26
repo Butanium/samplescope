@@ -29,3 +29,20 @@ instance over a real research repo (read-only).
   cwd-relative paths. The generated CLI reference only takes a command
   docstring's *first line*, so detail goes in later paragraphs when the
   generated SKILL.md section must not change.
+- **Chat subprocess leak.** Restored drawer tabs were all resumed on mount and
+  nothing ever stopped a session, so the live server had carried four `claude`
+  processes since July. Idle reaper + lazy per-tab re-attach + per-id resume
+  lock (concurrent resumes orphaned a process). Gotcha found while testing: a
+  session that never got a message has no SDK transcript, so after a reap (or
+  any restart) it couldn't resume and the tab was dead — it now restarts fresh.
+  Verified with real subprocess counts under `SAMPLESCOPE_CHAT_IDLE_MINUTES=0.5`
+  (3 tabs → 0 after reap → 1 on reload → send re-attaches), sends faked with
+  `page.route` so no model turn ran.
+- **Error text regression caught in the same pass:** 5e3cc62 made API errors
+  carry the server's `detail` as the message, which silently broke
+  `ChatTab.send`'s `String(e).includes("404")` re-attach check. Errors are now
+  `ApiError` with `.status`; check the status, never the message.
+- **Comparison filters** (`col >= 3`): Clément's two 07-21 requests. Kept to the
+  header box (no new control): literal mode + a picked column + comparison
+  syntax. The CLI can list them but not set them — a new `filter` option would
+  change the generated SKILL.md reference, which needs Clément's approval.
