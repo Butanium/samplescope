@@ -70,10 +70,16 @@ def _base_url() -> str:
     if not url:
         from .instances import DiscoveryError, discover
 
+        cwd = Path.cwd().resolve()
         try:
-            url = discover(Path.cwd()).base_url
+            inst = discover(cwd)
         except DiscoveryError as e:
             _die(str(e))
+        roots = [Path(r) for r in inst.scan_roots]
+        if not any(cwd == r or r in cwd.parents for r in roots):
+            # discover() fell back to the only running instance.
+            print(f"note: cwd is outside every scan root; driving {inst.describe()}", file=sys.stderr)
+        url = inst.base_url
     _BASE_URL = url.rstrip("/")
     return _BASE_URL
 
@@ -157,15 +163,17 @@ def _stringify(v: Any) -> str:
     return _truncate(s)
 
 
-def _print_table(rows: list[dict], columns: list[str]) -> None:
-    """Render rows as aligned columns. Missing keys render as empty strings."""
+def _print_table(rows: list[dict], columns: list[str], uncut: tuple[str, ...] = ()) -> None:
+    """Render rows as aligned columns. Missing keys render as empty strings.
+    Cells are cut at 80 chars except in `uncut` columns (paths, which are only
+    useful whole)."""
     cells = [[_stringify(r.get(c)) for c in columns] for r in rows]
     widths = [len(c) for c in columns]
     for row in cells:
         for i, cell in enumerate(row):
             if len(cell) > widths[i]:
                 widths[i] = len(cell)
-    widths = [min(w, 80) for w in widths]
+    widths = [w if columns[i] in uncut else min(w, 80) for i, w in enumerate(widths)]
     header = "  ".join(c.ljust(widths[i]) for i, c in enumerate(columns))
     print(header)
     print("  ".join("-" * widths[i] for i in range(len(columns))))
@@ -243,7 +251,7 @@ def cmd_ls(
         }
         for i in items
     ]
-    _print_table(rows, ["path", "kind", "size_bytes", "name"])
+    _print_table(rows, ["path", "kind", "size_bytes", "name"], uncut=("path",))
     print(f"\n{len(rows)} dataset(s)")
 
 
@@ -502,7 +510,7 @@ def cmd_marks(
         }
         for m in items
     ]
-    _print_table(rows, ["dataset_path", "row_idx", "tags", "note"])
+    _print_table(rows, ["dataset_path", "row_idx", "tags", "note"], uncut=("dataset_path",))
     print(f"\n{len(rows)} mark(s)")
 
 
@@ -817,7 +825,7 @@ def cmd_plot_ls() -> None:
         }
         for t in items
     ]
-    _print_table(rows, ["id", "kind", "title", "source_path", "created_at"])
+    _print_table(rows, ["id", "kind", "title", "source_path", "created_at"], uncut=("source_path",))
     print(f"\n{len(rows)} tab(s)")
 
 
