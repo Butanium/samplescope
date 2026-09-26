@@ -745,6 +745,7 @@ async def open_dataset(payload: dict) -> dict:
         columns=info.columns,
         numeric_cols=info.detect_meta.get("numeric_cols", []),
         tabular=info.detect_meta.get("tabular", False),
+        chat_fields=info.detect_meta.get("chat_fields"),
         row_idx=0,
         filters=[],
         shuffle_seed=None,

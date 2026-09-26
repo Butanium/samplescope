@@ -112,3 +112,23 @@ def test_parquet_chat_detection(tmp_path):
 def test_parquet_missing_falls_back_to_table(tmp_path):
     kind, meta = detect_view(tmp_path / "gone.parquet")
     assert (kind, meta) == ("table", {"format": "parquet"})
+
+
+def test_prompt_completion_pairs_are_chat(tmp_path):
+    """Long-text rows with a prompt-like and a response-like column detect as
+    chat, naming the columns the frontend builds messages from."""
+    import json
+    long = "a long completion " * 20
+    rows = [{"prompt": f"q{i}", "completion": long, "system_prompt": None if i else "be brief", "score": i}
+            for i in range(3)]
+    p = _write(tmp_path, "pairs.jsonl", "\n".join(json.dumps(r) for r in rows) + "\n")
+    kind, meta = detect_view(p)
+    assert kind == "chat"
+    assert meta["chat_fields"] == {"user": "prompt", "assistant": "completion", "system": "system_prompt"}
+
+
+def test_short_prompt_answer_pairs_stay_a_table(tmp_path):
+    p = _write(tmp_path, "qa.csv", "question,answer\nwhat,that\nwho,them\n")
+    kind, meta = detect_view(p)
+    assert kind == "table"
+    assert "chat_fields" not in meta

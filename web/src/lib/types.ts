@@ -108,6 +108,8 @@ export type PlotTab = {
   created_at: string;
 };
 
+export type ChatFields = { user: string; assistant: string; system?: string; reasoning?: string };
+
 export type ViewerState = {
   dataset_path: string | null;
   view_kind: ViewKind | null;
@@ -115,6 +117,8 @@ export type ViewerState = {
   columns: string[];
   numeric_cols: string[];
   tabular: boolean;
+  /** Chat built from prompt/response columns (no `messages`): role → column. */
+  chat_fields?: ChatFields | null;
   row_idx: number;
   /** AND-composed active filter list (replaces the legacy single regex). */
   filters: FilterSpec[];

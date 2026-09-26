@@ -83,7 +83,13 @@ aren't self-evident from the code.
   rows carrying long free-text (prompt/response/thinking) → `json` (per-sample
   *cards*, not the truncating spreadsheet); a flat numeric log is only `metrics`
   if `step` is ~unique per row AND there's no long text (otherwise it's
-  per-sample data that merely has a `step`). **CSV/TSV go through the same
+  per-sample data that merely has a `step`). Long-text rows with a prompt-like
+  and a response-like string column (`_chat_pair_or_json`; the response side
+  must itself be long, so gold-label QA stays cards) are `chat` too, with
+  `detect_meta.chat_fields` naming the columns: `ChatRowView.useChatRow` builds
+  `messages` from them client-side (raw JSON still shows the real row), the CLI's
+  `fields` commands drop them from the layout's schema key, and `ViewSwitch`
+  adds a `cards` mode with the JSON card view. **CSV/TSV go through the same
   heuristic tail** (`_classify_flat_rows`): rows are sniffed via DuckDB
   (`api/source.py:read_source_expr`, extracted to break the
   datasets↔schema_detect import cycle), `tabular` is always true, chat

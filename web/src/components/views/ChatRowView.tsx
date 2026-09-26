@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { api } from "../../lib/api";
@@ -25,6 +25,7 @@ import {
   fieldSchemaKey,
 } from "./fieldLayout";
 import type { NodeCtx } from "./jsonCards";
+import type { ChatFields } from "../../lib/types";
 
 const PAGE = 100;
 
@@ -80,6 +81,39 @@ const ROLE_LABEL_TONE: Record<string, string> = {
   assistant: "text-emerald-600 dark:text-emerald-400",
   tool: "text-violet-600 dark:text-violet-400",
 };
+
+/** Set for pair files (`{prompt, completion}`-style rows, no `messages`). */
+const ChatFieldsCtx = createContext<ChatFields | null>(null);
+
+/** The row as the chat renderer reads it: unchanged when it has `messages`;
+ *  otherwise `messages` built from the mapped columns, which then leave the
+ *  metadata half. Raw JSON / copy-JSON keep showing the original row. */
+function useChatRow<R extends Record<string, any> | undefined>(row: R): R {
+  const f = useContext(ChatFieldsCtx);
+  return useMemo(() => {
+    if (!row || !f || Array.isArray(row.messages)) return row;
+    const rest: Record<string, any> = { ...row };
+    const take = (k?: string) => {
+      if (!k) return undefined;
+      const val = rest[k];
+      delete rest[k];
+      return val;
+    };
+    const system = take(f.system);
+    const user = take(f.user);
+    const assistant = take(f.assistant);
+    const reasoning = take(f.reasoning);
+    const messages: Message[] = [];
+    if (typeof system === "string" && system) messages.push({ role: "system", content: system });
+    messages.push({ role: "user", content: user ?? "" });
+    messages.push({
+      role: "assistant",
+      content: assistant ?? "",
+      ...(typeof reasoning === "string" && reasoning ? { reasoning } : {}),
+    });
+    return { messages, ...rest } as unknown as R;
+  }, [row, f]);
+}
 
 function getMessages(row: Record<string, any> | undefined): Message[] {
   const m = row?.messages;
@@ -254,11 +288,12 @@ function RowBlock({
   onSelect: () => void;
   defaultRaw: boolean;
 }) {
-  const messages = getMessages(row);
+  const chatRow = useChatRow(row);
+  const messages = getMessages(chatRow);
   const pin = usePinHandler();
   const [raw, toggleRaw] = useRawOverride(`row::${datasetPath}::${idx}`, defaultRaw);
-  const { meta, schemaKey: metaKey } = useRowMeta(row);
-  const metaCtx = useMetaCtx(row);
+  const { meta, schemaKey: metaKey } = useRowMeta(chatRow);
+  const metaCtx = useMetaCtx(chatRow);
   return (
     <article
       onClick={(e) => {
@@ -301,7 +336,7 @@ function RowBlock({
           onClick={(e) => e.stopPropagation()}
         >
           <MarkInline path={datasetPath} idx={idx} />
-          <CopyButton variant="markdown" value={() => rowToMarkdown(row)} title="copy conversation (markdown)" />
+          <CopyButton variant="markdown" value={() => rowToMarkdown(chatRow)} title="copy conversation (markdown)" />
           <CopyButton variant="json" value={() => JSON.stringify(row, null, 2)} title="copy row JSON" />
           <RawJsonToggle value={raw} onChange={toggleRaw} title={raw ? "show parsed row" : "show raw row JSON"} />
         </div>
@@ -326,7 +361,7 @@ function RowBlock({
               defaultRaw={defaultRaw}
             />
           ))}
-          <RowMeta row={row} ctx={metaCtx} />
+          <RowMeta row={chatRow} ctx={metaCtx} />
         </div>
       )}
     </article>
@@ -446,10 +481,11 @@ function SingleMode({ datasetPath, defaultRaw }: {
   const { data: page } = useRowPage("chat-single", { offset: v.row_idx, limit: 1 });
 
   const row = page?.rows[0];
+  const chatRow = useChatRow(row);
   const realIdx = page?.indices[0];
-  const messages = useMemo(() => getMessages(row), [row]);
-  const { meta, schemaKey: metaKey } = useRowMeta(row);
-  const metaCtx = useMetaCtx(row);
+  const messages = useMemo(() => getMessages(chatRow), [chatRow]);
+  const { meta, schemaKey: metaKey } = useRowMeta(chatRow);
+  const metaCtx = useMetaCtx(chatRow);
 
   // Grouped single view: a cycler walks the members of the current row's group
   // (via nav, which DatasetHeader publishes); j/k step between groups.
@@ -489,7 +525,7 @@ function SingleMode({ datasetPath, defaultRaw }: {
         {metaKey && <FieldHeaderChips value={meta} schemaKey={metaKey} fallbackHidden />}
         <div className="ml-auto flex items-center gap-2">
           <MarkInline path={datasetPath} idx={v.row_idx} />
-          <CopyButton variant="markdown" value={() => rowToMarkdown(row)} title="copy conversation (markdown)" />
+          <CopyButton variant="markdown" value={() => rowToMarkdown(chatRow!)} title="copy conversation (markdown)" />
           <CopyButton variant="json" value={() => JSON.stringify(row, null, 2)} title="copy row JSON" />
           <RawJsonToggle value={raw} onChange={toggleRaw} title={raw ? "show parsed row" : "show raw row JSON"} />
         </div>
@@ -512,7 +548,7 @@ function SingleMode({ datasetPath, defaultRaw }: {
                 defaultRaw={defaultRaw}
               />
             ))}
-            <RowMeta row={row} ctx={metaCtx} />
+            <RowMeta row={chatRow!} ctx={metaCtx} />
           </>
         )}
       </div>
@@ -554,6 +590,10 @@ export default function ChatRowView() {
   // Whether reasoning (thinking) panels start unfolded. Dataset-independent —
   // a reading-mode preference, not a per-file one.
   const [reasoningOpen, setReasoningOpen] = usePref<boolean>("reasoningOpen", false);
+  // Stable across SSE patches (each carries a fresh object).
+  const chatFieldsKey = JSON.stringify(v.chat_fields ?? null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const chatFields = useMemo(() => v.chat_fields ?? null, [chatFieldsKey]);
 
   if (!v.dataset_path) {
     return <div className="p-12 text-zinc-500 text-sm">no dataset</div>;
@@ -561,10 +601,12 @@ export default function ChatRowView() {
 
   // The field-layout toolbar keys off the row's metadata schema, which the
   // column list gives us without waiting on a row fetch (`__idx` is synthetic).
-  const metaColumns = (v.columns ?? []).filter((c) => c !== "messages" && c !== "__idx");
+  const transcript = new Set(["messages", "__idx", ...Object.values(v.chat_fields ?? {})]);
+  const metaColumns = (v.columns ?? []).filter((c) => !transcript.has(c));
 
   const mode = url.viewMode;
   return (
+    <ChatFieldsCtx.Provider value={chatFields}>
     <div className="h-full flex flex-col bg-zinc-50 dark:bg-zinc-950">
       <div className="flex items-center gap-3 px-4 py-1.5 border-b border-zinc-200/60 dark:border-zinc-800/70 text-[11px] font-mono text-zinc-500">
         {mode === "list" && <ListCount />}
@@ -610,6 +652,7 @@ export default function ChatRowView() {
         )}
       </div>
     </div>
+    </ChatFieldsCtx.Provider>
   );
 }
 

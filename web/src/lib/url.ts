@@ -6,7 +6,7 @@
 //   - the visible drawer                        (`drawer=chat|marks|judges|sql|help|highlights`)
 //   - the chat session id                       (`session=<id>`)
 //   - the row-view sub-mode                     (`mode=list|single`)
-//   - the render-mode override                  (`view=samples|table|plot|stats`)
+//   - the render-mode override                  (`view=samples|cards|table|plot|stats`)
 //   - whether to render every row as raw JSON   (`raw=1`)
 //
 // IMPORTANT: the actual URL↔state effects are owned by `<UrlSyncBridge />`
@@ -25,7 +25,7 @@ import type { FilterSpec } from "./types";
 export type DrawerKey = "none" | "chat" | "marks" | "judges" | "sql" | "help" | "highlights" | "plots";
 export type ViewMode = "list" | "single";
 /** Render-mode override for the multi-view datasets (null = detected default). */
-export type RenderView = "samples" | "table" | "plot" | "stats";
+export type RenderView = "samples" | "cards" | "table" | "plot" | "stats";
 
 /**
  * How a filter's raw text is interpreted. The URL keeps this "pretty" form so a
@@ -56,7 +56,7 @@ export type UrlState = {
 };
 
 const DRAWERS: DrawerKey[] = ["none", "chat", "marks", "judges", "sql", "help", "highlights", "plots"];
-const RENDER_VIEWS: RenderView[] = ["samples", "table", "plot", "stats"];
+const RENDER_VIEWS: RenderView[] = ["samples", "cards", "table", "plot", "stats"];
 
 export function readUrl(params: URLSearchParams): UrlState {
   const get = (k: string) => params.get(k);

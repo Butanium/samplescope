@@ -11,6 +11,7 @@ const empty: ViewerState = {
   columns: [],
   numeric_cols: [],
   tabular: false,
+  chat_fields: null,
   row_idx: 0,
   filters: [],
   shuffle_seed: null,

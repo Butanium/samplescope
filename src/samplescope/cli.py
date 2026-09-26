@@ -945,7 +945,9 @@ def _layout_columns(path: str) -> tuple[list[str], bool]:
     is_chat = info.get("view_kind") == "chat"
     cols = [c for c in info.get("columns", []) if c != "__idx"]
     if is_chat:
-        cols = [c for c in cols if c != "messages"]
+        # The transcript: `messages`, or the columns a pair-chat is built from.
+        transcript = {"messages", *((info.get("detect_meta") or {}).get("chat_fields") or {}).values()}
+        cols = [c for c in cols if c not in transcript]
     return cols, is_chat
 
 

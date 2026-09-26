@@ -22,7 +22,7 @@ import { useViewerState } from "../lib/state";
 import { useUrlSync, type RenderView } from "../lib/url";
 import { api } from "../lib/api";
 import { nextIdx, prevIdx, nextMember, prevMember } from "../lib/nav";
-import { MessageSquare, Database, X, Star, Scale, Terminal, HelpCircle, Highlighter, Image as ImageIcon, ChevronDown, ChevronUp, LineChart as LineChartIcon, Table as TableIcon, PieChart } from "lucide-react";
+import { MessageSquare, Database, X, Star, Scale, Terminal, HelpCircle, Highlighter, Image as ImageIcon, ChevronDown, ChevronUp, LineChart as LineChartIcon, Table as TableIcon, PieChart, Braces } from "lucide-react";
 import { cn } from "../lib/utils";
 import { dismissNotice, useNotice } from "../lib/notice";
 
@@ -236,9 +236,13 @@ function ViewSwitch() {
   const defaultMode: RenderView =
     v.view_kind === "metrics" ? "plot" : v.view_kind === "table" ? "table" : "samples";
 
-  const modes = (["samples", "table", "plot", "stats"] as RenderView[]).filter(
+  // A chat built from prompt/response columns keeps the field cards it used
+  // to open as, one click away.
+  const canCards = !!v.chat_fields;
+  const modes = (["samples", "cards", "table", "plot", "stats"] as RenderView[]).filter(
     (m) =>
       m === "samples" ||
+      (m === "cards" && canCards) ||
       (m === "table" && canTable) ||
       (m === "plot" && canPlot) ||
       (m === "stats" && canStats),
@@ -259,7 +263,8 @@ function ViewSwitch() {
   };
 
   const render = () =>
-    active === "plot" ? <MetricsView />
+    active === "cards" ? <JsonTreeView />
+    : active === "plot" ? <MetricsView />
     : active === "table" ? <TableRowView />
     : active === "stats" ? <StatsView />
     : samples();
@@ -272,6 +277,9 @@ function ViewSwitch() {
       <div className="shrink-0 flex items-center gap-1 px-3 py-1 border-b border-zinc-200 dark:border-zinc-800">
         {modes.includes("samples") && (
           <ViewToggleButton active={active === "samples"} onClick={() => setView("samples")} icon={<Database size={12} />} label="samples" />
+        )}
+        {modes.includes("cards") && (
+          <ViewToggleButton active={active === "cards"} onClick={() => setView("cards")} icon={<Braces size={12} />} label="cards" />
         )}
         {modes.includes("table") && (
           <ViewToggleButton active={active === "table"} onClick={() => setView("table")} icon={<TableIcon size={12} />} label="table" />

@@ -269,7 +269,7 @@ def test_filter_chips_and_compose(page: Page, server: str):
     expect(main.get_by_text("category ≈ alpha", exact=True)).to_be_visible()
     # Chip 2: text "short" on the `question` column → AND-narrows to 2 (rows 3,9;
     # rows 0,6 have the long question). Scoped to `question` so the "short
-    # answer N" cells don't also match.
+    # answer N" rationale cells don't also match.
     main.get_by_title(re.compile(r"filter column")).select_option("question")
     main.locator("#filter-input").fill("short")
     main.locator("#filter-input").press("Enter")
@@ -344,7 +344,7 @@ def test_stats_deeplink_renders_grid(page: Page, server: str):
 def test_json_string_cell_expands(page: Page, server: str, dataset_dir):
     # The frontend seam only matters for a JSON-object string the backend leaves
     # as a string: `_jsonify` parses TOP-LEVEL cells server-side (so wide_text's
-    # `answer` arrives pre-parsed), but not values NESTED inside an object. So
+    # `rationale` arrives pre-parsed), but not values NESTED inside an object. So
     # this uses `meta.grade` — a nested JSON string — which reaches the client as
     # a raw string and is expanded in-place by jsonCards' StringLeaf.
     f = dataset_dir / "nested_json_cell.jsonl"
@@ -522,3 +522,16 @@ def test_deeplink_to_missing_file_shows_notice(page: Page, server: str):
     page.goto(f"{server}/?path=gone%2Fmissing.jsonl&idx=3")
     expect(page.get_by_role("alert")).to_contain_text("no such file under the serving root: gone/missing.jsonl")
     expect(page).not_to_have_url(re.compile("missing"))
+
+
+def test_prompt_completion_file_renders_as_chat(page: Page, server: str):
+    """A {prompt, completion} file opens as chat (no converter script needed),
+    the mapped columns leave the metadata, and `cards` shows the old view."""
+    page.goto(server)
+    open_file(page, "pairs.jsonl")
+    main = page.get_by_role("main")
+    expect(main.get_by_text("pair prompt 0", exact=True)).to_be_visible()
+    expect(main.get_by_text("assistant", exact=True).first).to_be_visible()
+    expect(main.get_by_text(re.compile(r"^1 more field")).first).to_be_visible()  # grade
+    main.get_by_role("button", name="cards", exact=True).click()
+    expect(main.get_by_text("prompt:", exact=True).first).to_be_visible()

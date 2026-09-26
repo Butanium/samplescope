@@ -128,6 +128,14 @@ def dataset_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     (d / "iso_narrow.jsonl").write_text(_iso(["alpha", "beta", "blurb"]))
     (d / "iso_base.jsonl").write_text(_iso(["alpha", "beta", "gamma", "blurb"]))
     (d / "iso_wide.jsonl").write_text(_iso(["alpha", "beta", "gamma", "blurb", "delta"]))
+    # prompt/completion rows with no `messages`: rendered as chat by mapping.
+    (d / "pairs.jsonl").write_text(
+        "\n".join(
+            json.dumps({"prompt": f"pair prompt {i}", "completion": "pair answer " * 30, "grade": i})
+            for i in range(3)
+        )
+        + "\n"
+    )
     # A >100-row json-card file so the infinite-scroll feed must paginate (the
     # frontend pulls 100 rows/page → this forces ≥3 pages).
     (d / "big.jsonl").write_text(
@@ -154,7 +162,9 @@ def dataset_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     long_a = "Because the grading rubric rewards this pattern of behavior; " * 5
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["id", "question", "answer", "score", "category"])
+    # `rationale`, not `answer`: question + long answer would be a Q→A pair,
+    # which detects as chat (see test_detect); this fixture is for the cards view.
+    w.writerow(["id", "question", "rationale", "score", "category"])
     for i in range(12):
         question = long_q if i % 2 == 0 else f"short question {i}"
         if i == 3:

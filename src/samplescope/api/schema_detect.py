@@ -22,6 +22,8 @@ def detect_view(path: Path, peek: int = 64) -> tuple[ViewKind, dict]:
     Heuristics:
     - A `.md`/`.markdown` file is rendered as prose, not parsed as rows → markdown
     - All rows have a well-formed `messages: [{role, content}, ...]` list  → chat
+    - Long-text rows with a prompt-like + a response-like string column    → chat
+      too, with `chat_fields` naming them (the frontend builds the messages)
     - All rows are flat dicts with a numeric `step` and ≥3 numeric metric cols → metrics
     - Otherwise, all rows are flat dicts (only scalars) → table
     - Else → json (raw tree fallback)
@@ -107,9 +109,41 @@ def _classify_flat_rows(rows: list[dict], *, tabular: bool, extra_meta: dict | N
         # better as per-sample cards than as a truncating spreadsheet; a plain
         # tabular dump (short scalars only) stays a table.
         if _has_long_text(rows):
-            return "json", meta
+            return _chat_pair_or_json(rows, meta)
         return "table", meta
-    return "json", meta
+    return _chat_pair_or_json(rows, meta) if _has_long_text(rows) else ("json", meta)
+
+
+# Column names that make a row one exchange, in preference order. Research
+# dumps are overwhelmingly {prompt, completion|response|answer}; instances used
+# to write a converter per file just to get the chat view.
+_USER_FIELDS = ("prompt", "question", "input", "instruction", "query")
+_ASSISTANT_FIELDS = ("completion", "response", "answer", "output", "generation", "model_response")
+_SYSTEM_FIELDS = ("system_prompt", "system")
+_REASONING_FIELDS = ("reasoning_content", "reasoning", "thinking")
+
+
+def _chat_pair_or_json(rows: list[dict], meta: dict) -> tuple[ViewKind, dict]:
+    def first_str_field(names: tuple[str, ...]) -> str | None:
+        for n in names:
+            if all(isinstance(r.get(n), str) for r in rows):
+                return n
+        return None
+
+    user, assistant = first_str_field(_USER_FIELDS), first_str_field(_ASSISTANT_FIELDS)
+    # The response side must be the long text: `{question, answer}` with short
+    # answers is a labelled dataset (gold answers), not a transcript.
+    if user is None or assistant is None or not _has_long_text([{assistant: r[assistant]} for r in rows]):
+        return "json", meta
+    fields = {"user": user, "assistant": assistant}
+    optional = {"system": _SYSTEM_FIELDS, "reasoning": _REASONING_FIELDS}
+    for role, names in optional.items():
+        # Optional fields may be null on some rows; string wherever present.
+        for n in names:
+            if any(n in r for r in rows) and all(r.get(n) is None or isinstance(r[n], str) for r in rows):
+                fields[role] = n
+                break
+    return "chat", {**meta, "chat_fields": fields}
 
 
 def _detect_csv(path: Path, peek: int) -> tuple[ViewKind, dict]:

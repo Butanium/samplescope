@@ -289,9 +289,9 @@ def test_stats_wide_text_csv(server: str):
     assert sum(t["count"] for t in cat["top_values"]) == 12
     assert cat["other_count"] == 0
 
-    # `question`/`answer` are long free-text: low distinct (12 rows) must NOT
+    # `question`/`rationale` are long free-text: low distinct (12 rows) must NOT
     # make them categorical — value-length beats cardinality for text.
-    for name in ("question", "answer"):
+    for name in ("question", "rationale"):
         c = cols[name]
         assert c["dtype"] == "text", name
         assert c["top_values"] is None, name
@@ -431,7 +431,7 @@ def test_parquet_full_pipeline(server: str):
     info = httpx.get(f"{server}/api/datasets/info", params={"path": path}).json()
     assert info["view_kind"] == "json"
     assert info["row_count"] == 12
-    assert set(info["columns"]) == {"id", "question", "answer", "score", "category"}
+    assert set(info["columns"]) == {"id", "question", "rationale", "score", "category"}
 
     # Filters compose through the same DuckDB pipeline.
     page = httpx.get(
@@ -446,7 +446,7 @@ def test_parquet_full_pipeline(server: str):
     cols = {c["name"]: c for c in st["columns"]}
     assert cols["id"]["index_like"] is True
     assert cols["category"]["dtype"] == "categorical"
-    assert cols["answer"]["dtype"] == "text"
+    assert cols["rationale"]["dtype"] == "text"
 
 
 def test_parquet_chat_detection_e2e(server: str):

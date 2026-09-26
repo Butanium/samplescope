@@ -28,6 +28,9 @@ class ViewerState:
     # Whether rows are flat (a spreadsheet rendering is meaningful) — drives the
     # "table" option in the view toggle.
     tabular: bool = False
+    # Set when a chat view is built from prompt/response columns rather than a
+    # `messages` list: {user, assistant[, system, reasoning]} → column names.
+    chat_fields: dict[str, str] | None = None
     row_idx: int = 0
     # AND-composed filters (empty = no filter). Serialized in to_dict as
     # a plain list of {column, regex[, op, value]} dicts — asdict leaves the FilterSpec
