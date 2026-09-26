@@ -39,37 +39,35 @@ export default function ChatDrawer({ onClose }: { onClose: () => void }) {
   const { data: health } = useQuery({ queryKey: ["health"], queryFn: api.health, staleTime: Infinity });
   const chatAvailable = health?.chat_available !== false;
 
-  // First mount:
-  //   - If we restored tabs from disk: re-attach each one server-side so the
-  //     SDK clients exist by the time the user sends. SSE inside ChatTab
-  //     opens after we've done this (mount races are handled by send's
-  //     404-retry path as a safety net).
-  //   - If we restored nothing: spin a fresh tab so the user never sees an
-  //     empty drawer.
+  // First mount with nothing restored: spin a fresh tab so the user never
+  // sees an empty drawer.
   useEffect(() => {
     if (!health || !chatAvailable) return; // wait for the probe; never init when disabled
     if (initRef.current) return;
     initRef.current = true;
-    (async () => {
-      if (tabs.length === 0) {
-        const s = await createWithModel();
-        addTab({ id: s.session_id, createdAt: Date.now() });
-      } else {
-        // Best-effort silent re-attach for each restored tab. Failures
-        // bubble up at send time as unresumable; that's the only spot we
-        // need to flag for the UI.
-        await Promise.all(tabs.map(async (t) => {
-          try {
-            const r = await api.resumeSession(t.id);
-            if (!r.resumed) setUnresumable((p) => new Set(p).add(t.id));
-          } catch {
-            setUnresumable((p) => new Set(p).add(t.id));
-          }
-        }));
-      }
-    })();
+    if (tabs.length === 0) {
+      createWithModel().then((s) => addTab({ id: s.session_id, createdAt: Date.now() }));
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [health]);
+
+  // Re-attach a restored tab server-side the first time it is shown, not all
+  // of them on mount: each live session is a `claude` subprocess, and eager
+  // resumes kept every tab ever left open alive for the server's lifetime.
+  // (ChatTab likewise opens its stream on first activation; resume is
+  // idempotent server-side, so the two never double-spawn.)
+  const resumeChecked = useRef(new Set<string>());
+  useEffect(() => {
+    if (!health || !chatAvailable || !activeTabId) return;
+    if (resumeChecked.current.has(activeTabId)) return;
+    resumeChecked.current.add(activeTabId);
+    const id = activeTabId;
+    api.resumeSession(id).then(
+      (r) => { if (!r.resumed) setUnresumable((p) => new Set(p).add(id)); },
+      () => setUnresumable((p) => new Set(p).add(id)),
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [health, activeTabId]);
 
   async function newTab() {
     const s = await createWithModel();

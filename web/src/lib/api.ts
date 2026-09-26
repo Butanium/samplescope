@@ -10,13 +10,20 @@ function setFiltersParam(p: URLSearchParams, filters?: FilterSpec[] | null): voi
   if (filters && filters.length) p.set("filters", JSON.stringify(filters));
 }
 
+/** A non-2xx API response. `message` is the server's `detail` when it sent one. */
+export class ApiError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+  }
+}
+
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(path, { ...init, headers: { "content-type": "application/json", ...(init?.headers || {}) } });
   if (!r.ok) {
     const body = await r.text();
     let detail: unknown;
     try { detail = JSON.parse(body)?.detail; } catch { /* not JSON */ }
-    throw new Error(typeof detail === "string" ? detail : `${r.status} ${r.statusText}: ${body}`);
+    throw new ApiError(r.status, typeof detail === "string" ? detail : `${r.status} ${r.statusText}: ${body}`);
   }
   return r.json() as Promise<T>;
 }
@@ -225,7 +232,7 @@ export function sse(
   for (const evt of [
     "snapshot", "patch", "ping",
     "message", "user_input", "error", "turn_start", "turn_end",
-    "result", "done",
+    "result", "done", "idle_closed",
     "tabs",
   ]) {
     es.addEventListener(evt, handler(evt) as any);

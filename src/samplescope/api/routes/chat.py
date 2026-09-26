@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+import os
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
@@ -136,6 +138,9 @@ class Session:
     listener_task: asyncio.Task | None = None
     in_turn: bool = False
     seq: int = 0
+    # Bumped by sends and by every message the SDK streams back; the idle
+    # reaper compares against it.
+    last_active: float = field(default_factory=time.monotonic)
 
     def publish(self, evt: dict) -> None:
         """Broadcast one event to every live SSE connection, never blocking
@@ -153,6 +158,42 @@ class Session:
 
 
 SESSIONS: dict[str, Session] = {}
+
+# Each live session holds a `claude` subprocess (~185 MB). Without a reaper
+# they lived as long as the server: restored drawer tabs resumed on page load
+# and stayed up for months. A reaped session re-attaches on its next send.
+CHAT_IDLE_SECONDS = float(os.environ.get("SAMPLESCOPE_CHAT_IDLE_MINUTES", "30")) * 60
+_reaper_task: asyncio.Task | None = None
+
+
+async def _disconnect(sess: Session) -> None:
+    if sess.listener_task is not None:
+        sess.listener_task.cancel()
+    try:
+        await sess.client.disconnect()
+    except Exception:
+        pass
+
+
+async def _reap_idle_sessions() -> None:
+    while True:
+        await asyncio.sleep(min(60.0, CHAT_IDLE_SECONDS / 4))
+        now = time.monotonic()
+        for sid, sess in list(SESSIONS.items()):
+            idle = now - sess.last_active
+            # A turn streams messages, so a quiet in_turn session is either a
+            # long-running tool or a turn whose end we never saw; give it 4x.
+            if idle < CHAT_IDLE_SECONDS * (4 if sess.in_turn else 1):
+                continue
+            SESSIONS.pop(sid, None)
+            sess.publish({"type": "idle_closed"})
+            await _disconnect(sess)
+
+
+def _ensure_reaper() -> None:
+    global _reaper_task
+    if _reaper_task is None or _reaper_task.done():
+        _reaper_task = asyncio.create_task(_reap_idle_sessions())
 
 
 def _serialize_block(b: Any) -> dict:
@@ -273,6 +314,7 @@ async def _spawn_session(
     sess = Session(id=sid, client=client, permission_mode=permission_mode, model=model)
     sess.listener_task = asyncio.create_task(_listen(sess))
     SESSIONS[sid] = sess
+    _ensure_reaper()
     return sess
 
 
@@ -351,22 +393,43 @@ async def resume_session(sid: str) -> dict:
     state. Returns `{ok: true, resumed: bool}` where `resumed=false` means
     we had to start the session fresh because the SDK id wasn't captured.
     """
+    # Serialized per session: the drawer and a tab's own 404-retry can resume
+    # the same id concurrently, and two spawns would orphan one subprocess.
+    async with _RESUME_LOCKS.setdefault(sid, asyncio.Lock()):
+        return await _resume_locked(sid)
+
+
+_RESUME_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+async def _resume_locked(sid: str) -> dict:
     if sid in SESSIONS:
+        SESSIONS[sid].last_active = time.monotonic()
         return {"ok": True, "resumed": True, "already_live": True}
-    sdk_id = _lookup_sdk_session_id(sid)
-    if sdk_id is None:
-        raise HTTPException(
-            404,
-            f"session {sid} has no captured sdk_session_id — likely too old; can't resume",
-        )
     with cursor() as cur:
         row = cur.execute(
             "SELECT model FROM state.chat_sessions WHERE session_id = ?",
             [sid],
         ).fetchone()
+        has_user = cur.execute(
+            "SELECT 1 FROM state.chat_messages WHERE session_id = ? AND role = 'user' LIMIT 1",
+            [sid],
+        ).fetchone()
     if row is None:
         raise HTTPException(404, f"session {sid} not found in state.chat_sessions")
     model = row[0]
+    sdk_id = _lookup_sdk_session_id(sid)
+    if sdk_id is None:
+        if has_user is None:
+            # Never used (claude writes no transcript before the first
+            # message), e.g. an empty tab after a restart or an idle reap:
+            # nothing to lose, so start it fresh under the same id.
+            await _spawn_session(sid, permission_mode="acceptEdits", model=model)
+            return {"ok": True, "resumed": True, "fresh": True, "model": model}
+        raise HTTPException(
+            404,
+            f"session {sid} has no captured sdk_session_id — likely too old; can't resume",
+        )
     # The SDK does its own JSONL copy under the hood (see session_resume.py
     # in claude-agent-sdk); we just hand it the canonical id and let it
     # snapshot a working copy. The runtime UUID it picks goes into a fresh
@@ -388,6 +451,7 @@ async def _listen(sess: Session) -> None:
     """
     try:
         async for msg in sess.client.receive_messages():
+            sess.last_active = time.monotonic()
             # First non-result content after the previous turn ended ⇒ new turn
             # began. SystemMessages don't count: the SDK emits an `init` system
             # message right after connect, and treating it as a turn start made
@@ -462,12 +526,7 @@ async def set_session_model(sid: str, payload: dict) -> dict:
 async def close_session(sid: str) -> dict:
     sess = SESSIONS.pop(sid, None)
     if sess is not None:
-        if sess.listener_task is not None:
-            sess.listener_task.cancel()
-        try:
-            await sess.client.disconnect()
-        except Exception:
-            pass
+        await _disconnect(sess)
     # GC empty sessions so the history list doesn't bloat. Anything with at
     # least one user message stays — that's what `list_sessions` shows.
     with cursor() as cur:
@@ -521,6 +580,7 @@ async def send_message(sid: str, req: ChatMessageRequest) -> dict:
             )
         except Exception:
             pass
+    sess.last_active = time.monotonic()
     mid_turn = sess.in_turn
     user_payload = {
         "role": "user",
@@ -571,6 +631,8 @@ async def session_events(sid: str) -> EventSourceResponse:
                 try:
                     evt = await asyncio.wait_for(q.get(), timeout=15.0)
                     yield {"event": evt["type"], "data": json.dumps(evt.get("payload", {}))}
+                    if evt["type"] == "idle_closed":
+                        return
                 except asyncio.TimeoutError:
                     yield {"event": "ping", "data": "{}"}
         finally:

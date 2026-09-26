@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { api, sse } from "../lib/api";
+import { api, sse, ApiError } from "../lib/api";
 import type { ChatBlock, ChatMessage } from "../lib/types";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -96,6 +96,13 @@ export default function ChatTab({ id, active, readOnlyHistorical = false }: Chat
       setPhase("idle");
     } else if (event === "turn_start") setPhase("running");
     else if (event === "turn_end") setPhase("idle");
+    else if (event === "idle_closed") {
+      // The server reaped this idle session's claude process. Stay detached
+      // (reconnecting would respawn it); the next send re-attaches via 404.
+      sseUnsubRef.current?.();
+      sseUnsubRef.current = null;
+      setPhase("idle");
+    }
   }, []);
 
   // Rebuild the timeline from persisted history. Also the recovery path
@@ -182,8 +189,14 @@ export default function ChatTab({ id, active, readOnlyHistorical = false }: Chat
     });
   }, [id, handleSseEvent, loadHistory]);
 
-  // Rehydrate from backend history on mount, then subscribe to SSE.
+  // Rehydrate from backend history, then subscribe to SSE — the first time
+  // the tab is shown, not on mount: a subscription to a non-live session
+  // resumes it (the 404 path above), and a hidden tab needn't hold a
+  // `claude` subprocess. Once open, the stream stays up while hidden.
+  const attached = useRef(false);
   useEffect(() => {
+    if (!active || attached.current) return;
+    attached.current = true;
     (async () => {
       await loadHistory();
       // Read-only tabs (un-resumable historical sessions) have no live SDK
@@ -191,13 +204,12 @@ export default function ChatTab({ id, active, readOnlyHistorical = false }: Chat
       if (readOnlyHistorical) return;
       openSse();
     })();
-    return () => {
-      sseUnsubRef.current?.();
-      sseUnsubRef.current = null;
-    };
-  // id is the identity of this tab — we never change it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [active]);
+  useEffect(() => () => {
+    sseUnsubRef.current?.();
+    sseUnsubRef.current = null;
+  }, []);
 
   useEffect(() => {
     if (active) {
@@ -247,7 +259,7 @@ export default function ChatTab({ id, active, readOnlyHistorical = false }: Chat
     } catch (e) {
       // 404 = backend forgot the session (uvicorn reload, manual close).
       // Silent re-attach + retry once. SSE also has to be reopened.
-      if (String(e).includes("404")) {
+      if (e instanceof ApiError && e.status === 404) {
         try {
           await api.resumeSession(id);
           openSse();
