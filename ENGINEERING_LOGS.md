@@ -79,3 +79,12 @@ instance over a real research repo (read-only).
   connection fixes it; byte-identical output checked on a real 12MB CSV.
 - **`.markdown` outer margins** made every one-line string field 16px taller
   than numeric ones (the `<p>` margins stay inside a flex item).
+- **Stats charts are cross-filters; histogram bins click-to-filter.** A column's
+  chart ignores the filters on that column, which is what makes a click toggle
+  (before, the filtered column re-binned over its own selection). Bin counts
+  are now assigned by comparing against the returned edge doubles, so a bar and
+  its filter always agree; the old `floor((x-min)/width)` could put an on-edge
+  value in the neighbouring bin.
+- **Scan cost** was per-file Path + stat + sort over every file in the repo
+  (79k), not the walk; extension check first. Remaining ~0.9 s is `os.walk`
+  over ~10k dirs on the slow volume.
