@@ -71,3 +71,22 @@ def test_cli_open_accepts_cwd_relative_path(server: str, state_home: Path, datas
     r = _viewer(["open", "missing.jsonl"], dataset_dir, state_home)
     assert r.returncode == 1
     assert "no such file under the serving root: missing.jsonl" in r.stderr, r.stderr
+
+
+def test_cli_cmp_filter_and_ls_json(server: str, state_home: Path, dataset_dir: Path):
+    """`filter --cmp` sets a numeric comparison; `ls --json` is parseable."""
+    import json
+
+    try:
+        r = _viewer(["open", "records.jsonl"], dataset_dir, state_home)
+        assert r.returncode == 0, r.stderr
+        r = _viewer(["filter", ">= 4", "--column", "rid", "--cmp"], dataset_dir, state_home)
+        assert r.returncode == 0, r.stderr
+        r = _viewer(["filters"], dataset_dir, state_home)
+        assert ">= 4" in r.stdout, r.stdout
+        r = _viewer(["filter", "four", "--column", "rid", "--cmp"], dataset_dir, state_home)
+        assert r.returncode == 1 and "--cmp needs" in r.stderr
+        r = _viewer(["ls", "--json"], dataset_dir, state_home)
+        assert any(e["name"] == "records.jsonl" for e in json.loads(r.stdout))
+    finally:
+        _viewer(["clear-filter"], dataset_dir, state_home)

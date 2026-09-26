@@ -57,6 +57,7 @@ Full command reference (generated from the CLI itself — trust it over memory):
 sscope view ls [options]
   # List discoverable datasets (JSONL/CSV/parquet/.eval under scan roots).
   --filter TEXT                     substring match on path
+  --json                            print the entries as a JSON list
 sscope view info <path>
   # Schema-detect one dataset: row count, columns, view kind.
 sscope view stats [path]
@@ -72,6 +73,7 @@ sscope view prev
 sscope view filter <regex> [options]
   # Add a regex filter to the open dataset (AND-composed with existing ones).
   --column TEXT                     restrict to one column; omit for whole-row
+  --cmp                             REGEX is a numeric comparison like '>= 3' (needs --column)
 sscope view filters
   # List the active filters (index, column, regex).
 sscope view rm-filter <idx>
@@ -188,8 +190,9 @@ sscope view fields clear [options]
   --note "…"` the noteworthy rows. Marks persist across restarts — they're a
   shared annotation layer. `filter` *adds* to the active list (each with an
   optional `--column`); filters AND-compose, so repeated `filter` calls narrow
-  the view. `sscope view filters` lists them, `rm-filter <idx>` drops one,
-  `clear-filter` removes all.
+  the view. Numeric thresholds are filters too:
+  `sscope view filter '>= 3' --column score --cmp` (no SQL needed). `sscope view
+  filters` lists them, `rm-filter <idx>` drops one, `clear-filter` removes all.
 - **Narrow by query**: `sscope view sql 'SELECT __idx, … FROM t WHERE …'
   --apply selection` narrows the human's view to the matching rows so they
   page through just those.
@@ -203,23 +206,27 @@ sscope view fields clear [options]
 When generating files the human will read here, pick a schema the viewer
 auto-detects a good view for (detection sniffs the first 64 rows):
 
-- **Chat view (best for anything conversation-shaped)** — give each JSONL row
-  a `messages: [{role, content}, ...]` list; it renders as chat bubbles.
-  Rules that matter:
-  - EVERY row needs a non-empty `messages` list and every message needs both
-    a `role` and a `content` key — detection is all-rows, so one empty or
-    malformed row silently demotes the whole file to the generic card view.
-  - `content` is a plain string (simplest) or an OpenAI-style block list
-    (`[{type: "text", text: ...}, ...]`).
-  - Reasoning traces render as collapsible panels: put them in
-    `reasoning_content` / `reasoning` / `thinking` on the message, or as
-    `{type: "reasoning"|"thinking", ...}` blocks inside a content list.
-  - All other top-level row fields stay as metadata (filterable, sortable,
-    judgeable, pinnable above each row).
+- **Chat view (best for anything conversation-shaped)** — two shapes work:
+  - One exchange per row: a prompt-like string column (`prompt`, `question`,
+    `input`, `instruction`, `query`) plus a response-like one (`completion`,
+    `response`, `answer`, `output`, `generation`, `model_response`) holding
+    long text; optional `system_prompt`/`system` and `reasoning_content`/
+    `reasoning`/`thinking` columns become the system bubble and the reasoning
+    panel. No conversion needed — don't write a converter script.
+  - Multi-turn: a `messages: [{role, content}, ...]` list per row. Rules:
+    - EVERY row needs a non-empty `messages` list and every message needs
+      both a `role` and a `content` key — detection is all-rows, so one empty
+      or malformed row silently demotes the whole file to the generic card view.
+    - `content` is a plain string (simplest) or an OpenAI-style block list
+      (`[{type: "text", text: ...}, ...]`).
+    - Reasoning traces render as collapsible panels: put them in
+      `reasoning_content` / `reasoning` / `thinking` on the message, or as
+      `{type: "reasoning"|"thinking", ...}` blocks inside a content list.
+  - Either way, all other top-level row fields stay as metadata (filterable,
+    sortable, judgeable, pinnable above each row).
 - **Card view (per-sample JSON)** — flat rows where some field holds free
-  text >200 chars. The right shape for per-sample dumps that aren't
-  conversations (bare `prompt`/`completion` columns land here — readable,
-  but prefer `messages` when the data really is a dialogue).
+  text >200 chars and that aren't one of the chat shapes above. A pair file
+  also offers `cards` in the header toggle (URL `view=cards`).
 - **Table view** — flat rows of short scalars only.
 - **Metrics view** — flat numeric rows with a `step` column that's ~unique
   per row (a real logging curve), ≥3 numeric columns, no long text.
@@ -229,7 +236,8 @@ auto-detects a good view for (detection sniffs the first 64 rows):
 - **CSV/TSV** — sniffed with the same heuristics as JSONL (a long-text CSV
   opens as cards, a step curve as a plot), and JSON-encoded string cells
   render expanded in the card view. Still prefer JSONL for anything with
-  nested structure; chat view never triggers from CSV.
+  nested structure; a CSV gets the chat view only through the prompt/response
+  column shape (a `messages` cell there is just a string).
 
 Every multi-sample view has a samples/table/plot/stats toggle in the header;
 `stats` shows per-column distributions (pies for categoricals, histograms for

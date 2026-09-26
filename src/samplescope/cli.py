@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -237,11 +238,15 @@ def _resolve_path(path: Optional[str]) -> str:
 @view_app.command("ls")
 def cmd_ls(
     filter_: Optional[str] = typer.Option(None, "--filter", help="substring match on path"),
+    as_json: bool = typer.Option(False, "--json", help="print the entries as a JSON list"),
 ) -> None:
     """List discoverable datasets (JSONL/CSV/parquet/.eval under scan roots)."""
     items = _get("/api/datasets")
     if filter_:
         items = [i for i in items if filter_ in i.get("path", "")]
+    if as_json:
+        print(json.dumps(items, ensure_ascii=False))
+        return
     rows = [
         {
             "path": i["path"],
@@ -341,11 +346,20 @@ def cmd_prev() -> None:
 def cmd_filter(
     regex: str,
     column: Optional[str] = typer.Option(None, "--column", help="restrict to one column; omit for whole-row"),
+    cmp: bool = typer.Option(False, "--cmp", help="REGEX is a numeric comparison like '>= 3' (needs --column)"),
 ) -> None:
     """Add a regex filter to the open dataset (AND-composed with existing ones)."""
     st = _state()
     filters = list(st.get("filters") or [])
-    filters.append({"column": column, "regex": regex})
+    if cmp:
+        # Same grammar as the header filter box (url.ts `parseComparison`).
+        m = re.fullmatch(r"\s*(>=|<=|!=|==|=|>|<)\s*(-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)\s*", regex, re.I)
+        if not m or not column:
+            _die("--cmp needs --column and a comparison like '>= 3' (ops: > >= < <= = !=)")
+        op = "=" if m[1] == "==" else m[1]
+        filters.append({"column": column, "regex": "", "op": op, "value": float(m[2])})
+    else:
+        filters.append({"column": column, "regex": regex})
     out = _post("/api/datasets/filter", {"filters": filters})
     _print_json(out)
 

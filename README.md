@@ -60,6 +60,7 @@ One binary, two halves: `sscope serve [DIR ...]` runs the server (bare
 sscope view ls [options]
   # List discoverable datasets (JSONL/CSV/parquet/.eval under scan roots).
   --filter TEXT                     substring match on path
+  --json                            print the entries as a JSON list
 sscope view info <path>
   # Schema-detect one dataset: row count, columns, view kind.
 sscope view stats [path]
@@ -75,6 +76,7 @@ sscope view prev
 sscope view filter <regex> [options]
   # Add a regex filter to the open dataset (AND-composed with existing ones).
   --column TEXT                     restrict to one column; omit for whole-row
+  --cmp                             REGEX is a numeric comparison like '>= 3' (needs --column)
 sscope view filters
   # List the active filters (index, column, regex).
 sscope view rm-filter <idx>
