@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from .schema_detect import FileKind, ViewKind
 
@@ -27,10 +27,20 @@ class DatasetInfo(BaseModel):
 
 
 class FilterSpec(BaseModel):
-    """One regex filter. ``column=None`` matches anywhere in the row (to_json);
-    otherwise the regex is applied to that column CAST to VARCHAR."""
+    """One filter. By default a regex: ``column=None`` matches anywhere in the
+    row (to_json), otherwise the regex is applied to that column CAST to
+    VARCHAR. With ``op`` set it is a numeric comparison ``column <op> value``
+    instead (``regex`` is ignored; cells that aren't numbers never match)."""
     column: str | None = None
-    regex: str
+    regex: str = ""
+    op: Optional[Literal[">", ">=", "<", "<=", "=", "!="]] = None
+    value: Optional[float] = None
+
+    @model_validator(mode="after")
+    def _comparison_needs_column_and_value(self) -> "FilterSpec":
+        if self.op is not None and (not self.column or self.value is None):
+            raise ValueError("a comparison filter needs `column` and `value`")
+        return self
 
 
 class FilterUpdate(BaseModel):

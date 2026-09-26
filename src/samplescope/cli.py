@@ -356,7 +356,12 @@ def cmd_filters() -> None:
     st = _state()
     filters = st.get("filters") or []
     rows = [
-        {"idx": i, "column": f.get("column") or "(whole row)", "regex": f.get("regex")}
+        {
+            "idx": i,
+            "column": f.get("column") or "(whole row)",
+            # A comparison filter (set from the UI) shows as `>= 3`.
+            "regex": f"{f['op']} {f.get('value'):g}" if f.get("op") else f.get("regex"),
+        }
         for i, f in enumerate(filters)
     ]
     _print_table(rows, ["idx", "column", "regex"])

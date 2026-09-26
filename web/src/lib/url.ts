@@ -30,10 +30,11 @@ export type RenderView = "samples" | "table" | "plot" | "stats";
 /**
  * How a filter's raw text is interpreted. The URL keeps this "pretty" form so a
  * user-typed literal round-trips without leaking its escaped regex, and the
- * stats view can author `exact` chips. `compileTriple` lowers it to the single
- * `{column, regex}` the server understands.
+ * stats view can author `exact` chips. `compileTriple` lowers it to the
+ * `FilterSpec` the server understands. `cmp` holds a numeric comparison as its
+ * text (`>= 3`).
  */
-export type FilterMode = "text" | "regex" | "exact";
+export type FilterMode = "text" | "regex" | "exact" | "cmp";
 /** URL/UI representation of one filter: `[column|null, rawText, mode]`. */
 export type FilterTriple = [string | null, string, FilterMode];
 
@@ -89,7 +90,7 @@ function isFilterTriple(t: unknown): t is FilterTriple {
     t.length === 3 &&
     (t[0] === null || typeof t[0] === "string") &&
     typeof t[1] === "string" &&
-    (t[2] === "text" || t[2] === "regex" || t[2] === "exact")
+    (t[2] === "text" || t[2] === "regex" || t[2] === "exact" || t[2] === "cmp")
   );
 }
 
@@ -120,27 +121,51 @@ export function readFilters(params: URLSearchParams): FilterTriple[] {
   return [];
 }
 
+type CmpOp = NonNullable<FilterSpec["op"]>;
+const CMP_RE = /^\s*(>=|<=|!=|==|=|>|<)\s*(-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)\s*$/i;
+
+/** `>= 3` → {op, value}; null when the text isn't a numeric comparison. */
+export function parseComparison(text: string): { op: CmpOp; value: number } | null {
+  const m = CMP_RE.exec(text);
+  if (!m) return null;
+  return { op: (m[1] === "==" ? "=" : m[1]) as CmpOp, value: Number(m[2]) };
+}
+
 /**
- * Lower one pretty filter triple to the `{column, regex}` the server consumes:
+ * Lower one pretty filter triple to the `FilterSpec` the server consumes:
  * `text` → escaped literal substring, `regex` → verbatim, `exact` → anchored
- * literal (`^…$`). This is the single compile seam — the server never sees the
- * text/mode distinction.
+ * literal (`^…$`), `cmp` → numeric `{op, value}` (a hand-edited `cmp` that
+ * doesn't parse, or has no column, degrades to a literal). This is the single
+ * compile seam — the server never sees the text/mode distinction.
  */
 export function compileTriple([column, text, mode]: FilterTriple): FilterSpec {
+  if (mode === "cmp") {
+    const c = parseComparison(text);
+    if (c && column) return { column, regex: "", op: c.op, value: c.value };
+  }
   const regex =
     mode === "regex" ? text : mode === "exact" ? `^${escapeRegex(text)}$` : escapeRegex(text);
   return { column, regex };
+}
+
+/** The pretty triple for a server-side spec (a filter set by an agent). */
+function specToTriple(f: FilterSpec): FilterTriple {
+  if (f.op && f.value != null) return [f.column ?? null, `${f.op} ${f.value}`, "cmp"];
+  return [f.column ?? null, f.regex ?? "", "regex"];
 }
 
 export function compileFilters(triples: FilterTriple[]): FilterSpec[] {
   return triples.map(compileTriple);
 }
 
-/** Order-sensitive equality of two compiled filter lists (column + regex). */
+/** Order-sensitive equality of two compiled filter lists. */
 function compiledFiltersEqual(a: FilterSpec[], b: FilterSpec[]): boolean {
   return (
     a.length === b.length &&
-    a.every((f, i) => (f.column ?? null) === (b[i].column ?? null) && f.regex === b[i].regex)
+    a.every((f, i) =>
+      (f.column ?? null) === (b[i].column ?? null) &&
+      (f.op ?? null) === (b[i].op ?? null) &&
+      (f.op ? f.value === b[i].value : (f.regex ?? "") === (b[i].regex ?? "")))
   );
 }
 
@@ -339,8 +364,8 @@ export function UrlSyncBridge() {
           // (a user-typed literal / regex / exact form the state can't recover).
         } else {
           // State diverged (e.g. the chat agent set filters via CLI) — rewrite
-          // from state as verbatim regex triples.
-          const triples: FilterTriple[] = stateFilters.map((f) => [f.column ?? null, f.regex, "regex"]);
+          // from state (regex specs as verbatim regex triples).
+          const triples: FilterTriple[] = stateFilters.map(specToTriple);
           if (triples.length) next.set("filters", JSON.stringify(triples));
           else next.delete("filters");
           next.delete("q");

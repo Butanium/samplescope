@@ -74,6 +74,23 @@ def test_regex_filter(server: str):
     assert page["total_filtered"] == 10
 
 
+def test_comparison_filter(server: str):
+    """`op`/`value` specs compare numerically (TRY_CAST, so a non-numeric cell
+    never matches) and AND-compose with regex specs."""
+    path = _path_of(server, "records.jsonl")  # rid 0..5
+    rows = lambda filters: httpx.get(  # noqa: E731
+        f"{server}/api/datasets/rows",
+        params={"path": path, "filters": json.dumps(filters), "limit": 50},
+    )
+    page = rows([{"column": "rid", "op": ">=", "value": 4}]).json()
+    assert page["indices"] == [4, 5]
+    page = rows([{"column": "rid", "op": "!=", "value": 0}, {"column": "bucket", "regex": "^even$"}]).json()
+    assert page["indices"] == [2, 4]
+    page = rows([{"column": "label", "op": ">", "value": 0}]).json()  # text column
+    assert page["total_filtered"] == 0
+    assert rows([{"op": ">", "value": 1}]).status_code == 400  # no column
+
+
 def test_multi_filter_and_composes(server: str):
     """Two filters in the `filters` JSON param AND-compose: category=^alpha$ AND
     question~short → strictly fewer rows than either alone."""

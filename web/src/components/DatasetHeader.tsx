@@ -1,15 +1,20 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "../lib/api";
 import { useViewerState } from "../lib/state";
-import { useUrlSync, type FilterTriple } from "../lib/url";
+import { parseComparison, useUrlSync, type FilterTriple } from "../lib/url";
 import { nextIdx, prevIdx, setNavGroups } from "../lib/nav";
 import { useGroups } from "../lib/groups";
 import { cn, copyToClipboard } from "../lib/utils";
 import { Shuffle, ChevronLeft, ChevronRight, X, Filter, ArrowUp, ArrowDown, ArrowUpDown, Layers } from "lucide-react";
 
+const PRETTY_OP: Record<string, string> = { ">=": "≥", "<=": "≤", "!=": "≠" };
+
 /** Human-readable label for a filter chip: `col = v` (exact), `col ≈ v` (text),
- *  `col ~ re` (regex); the column prefix is dropped when it matches any column. */
+ *  `col ~ re` (regex), `col ≥ 3` (comparison); the column prefix is dropped
+ *  when it matches any column. */
 function chipLabel([col, text, mode]: FilterTriple): string {
+  const c = mode === "cmp" ? parseComparison(text) : null;
+  if (c) return `${col} ${PRETTY_OP[c.op] ?? c.op} ${c.value}`;
   const op = mode === "exact" ? "=" : mode === "regex" ? "~" : "≈";
   return col ? `${col} ${op} ${text}` : `${op} ${text}`;
 }
@@ -48,7 +53,9 @@ export default function DatasetHeader() {
   const applyDraft = () => {
     const text = textDraft.trim();
     if (!text) return;
-    const triple: FilterTriple = [columnDraft || null, text, isRegex ? "regex" : "text"];
+    // `>= 3` on a picked column is a numeric comparison, not a literal search.
+    const mode = isRegex ? "regex" : columnDraft && parseComparison(text) ? "cmp" : "text";
+    const triple: FilterTriple = [columnDraft || null, text, mode];
     setFilters([...filters, triple]);
     setTextDraft("");
   };
@@ -202,7 +209,8 @@ export default function DatasetHeader() {
             value={textDraft}
             onChange={(e) => setTextDraft(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && applyDraft()}
-            placeholder={isRegex ? "regex…" : "search…"}
+            placeholder={isRegex ? "regex…" : columnDraft ? "search… or >= 3" : "search…"}
+            title={columnDraft && !isRegex ? "text to find, or a comparison: >= 3, < 0.5, != 0" : undefined}
             className={cn(
               "w-40 pl-1.5 pr-7 py-0.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded outline-none focus:border-emerald-600",
               isRegex ? "font-mono" : "font-sans",

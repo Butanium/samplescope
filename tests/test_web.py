@@ -236,6 +236,24 @@ def test_filter_chip_narrows_rows(page: Page, server: str):
     expect(page.get_by_text("question 0", exact=True)).to_be_visible()
 
 
+def test_filter_comparison_chip(page: Page, server: str):
+    """With a column picked, `>= 4` in the filter box is a numeric comparison
+    chip, not a literal search for the text ">= 4"."""
+    page.goto(server)
+    open_file(page, "records.jsonl")
+    main = page.get_by_role("main")
+    expect(main.get_by_text("response:", exact=True).first).to_be_visible()
+    page.get_by_title("filter column ((any) = every column)").select_option("rid")
+    page.locator("#filter-input").click()
+    page.keyboard.type(">= 4")
+    page.keyboard.press("Enter")
+    try:
+        expect(page.get_by_text("rid ≥ 4", exact=True)).to_be_visible()
+        expect(main.get_by_text(re.compile(r"showing 2 of 2"))).to_be_visible()
+    finally:
+        page.get_by_title(re.compile(r"remove filter · rid ≥ 4")).click()
+
+
 def test_filter_chips_and_compose(page: Page, server: str):
     # wide_text.csv: category cycles alpha/beta/gamma; question is long_q on even
     # rows, "short question N" on odd. category=alpha → rows 0,3,6,9 (4). AND

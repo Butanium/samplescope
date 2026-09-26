@@ -29,8 +29,8 @@ class ViewerState:
     # "table" option in the view toggle.
     tabular: bool = False
     row_idx: int = 0
-    # AND-composed regex filters (empty = no filter). Serialized in to_dict as
-    # a plain list of {column, regex} dicts — asdict leaves the FilterSpec
+    # AND-composed filters (empty = no filter). Serialized in to_dict as
+    # a plain list of {column, regex[, op, value]} dicts — asdict leaves the FilterSpec
     # models untouched, so we materialize them ourselves.
     filters: list[FilterSpec] = field(default_factory=list)
     shuffle_seed: int | None = None
@@ -58,7 +58,10 @@ class ViewerState:
         d = asdict(self)
         sel = d.pop("sql_selection", None)
         d["sql_selection_count"] = len(sel) if sel is not None else None
-        d["filters"] = [{"column": f.column, "regex": f.regex} for f in self.filters]
+        d["filters"] = [
+            {"column": f.column, "regex": f.regex, **({"op": f.op, "value": f.value} if f.op else {})}
+            for f in self.filters
+        ]
         return d
 
 

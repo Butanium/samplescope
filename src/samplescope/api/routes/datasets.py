@@ -267,6 +267,11 @@ def _build_rows_query(
     qualify_parts: list[str] = []
     params: list = [str(qp)]
     for f in filters:
+        if f.op:
+            # `op` is a validated Literal, so inlining it is safe.
+            qualify_parts.append(f"TRY_CAST({_quote_ident(f.column)} AS DOUBLE) {f.op} ?")
+            params.append(f.value)
+            continue
         if f.column:
             qualify_parts.append(f"regexp_matches(CAST({_quote_ident(f.column)} AS VARCHAR), ?)")
         else:

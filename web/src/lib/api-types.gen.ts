@@ -1198,14 +1198,23 @@ export interface components {
         };
         /**
          * FilterSpec
-         * @description One regex filter. ``column=None`` matches anywhere in the row (to_json);
-         *     otherwise the regex is applied to that column CAST to VARCHAR.
+         * @description One filter. By default a regex: ``column=None`` matches anywhere in the
+         *     row (to_json), otherwise the regex is applied to that column CAST to
+         *     VARCHAR. With ``op`` set it is a numeric comparison ``column <op> value``
+         *     instead (``regex`` is ignored; cells that aren't numbers never match).
          */
         FilterSpec: {
             /** Column */
             column?: string | null;
-            /** Regex */
+            /** Op */
+            op?: (">" | ">=" | "<" | "<=" | "=" | "!=") | null;
+            /**
+             * Regex
+             * @default
+             */
             regex: string;
+            /** Value */
+            value?: number | null;
         };
         /**
          * FilterUpdate
