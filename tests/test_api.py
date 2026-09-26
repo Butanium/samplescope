@@ -379,7 +379,19 @@ def test_marks_roundtrip(server: str):
 
 def test_path_escape_refused(server: str):
     r = httpx.get(f"{server}/api/datasets/info", params={"path": "../../etc/passwd"})
-    assert r.status_code >= 400
+    assert r.status_code == 400
+    assert "escapes the serving root" in r.json()["detail"]
+
+
+def test_open_bad_path_names_the_problem(server: str):
+    """A missing file / a directory is a 4xx whose detail says what's wrong
+    (it was a bare 500, which the UI swallowed and the CLI couldn't explain)."""
+    r = httpx.post(f"{server}/api/datasets/open", json={"path": "no/such/file.jsonl"})
+    assert r.status_code == 404
+    assert "no/such/file.jsonl" in r.json()["detail"]
+    r = httpx.post(f"{server}/api/datasets/open", json={"path": "nested"})
+    assert r.status_code == 400
+    assert "not a file" in r.json()["detail"]
 
 
 def test_static_ui_served(server: str):

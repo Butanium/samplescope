@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import { noticeOpenFailed } from "../lib/notice";
 import { useViewerState } from "../lib/state";
 import { usePref } from "../lib/prefs";
 import { fmtBytes, cn, copyToClipboard, joinPath } from "../lib/utils";
@@ -447,7 +448,7 @@ function useOpenEntry() {
         setDrawer("plots");
         return;
       }
-      api.openDataset(entry.path);
+      api.openDataset(entry.path).catch((e) => noticeOpenFailed(entry.path, e));
     },
     [pin, setDrawer],
   );

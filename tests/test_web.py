@@ -496,3 +496,11 @@ def test_chat_metadata_stays_folded_beside_arranged_json_layout(page: Page, serv
         reset = main.get_by_title(re.compile("^reset field"))
         if reset.count() > 0:
             reset.click()
+
+
+def test_deeplink_to_missing_file_shows_notice(page: Page, server: str):
+    """A ?path= that can't be opened says so and the URL falls back to what is
+    on screen, instead of failing silently and leaving the stale link."""
+    page.goto(f"{server}/?path=gone%2Fmissing.jsonl&idx=3")
+    expect(page.get_by_role("alert")).to_contain_text("no such file under the serving root: gone/missing.jsonl")
+    expect(page).not_to_have_url(re.compile("missing"))

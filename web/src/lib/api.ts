@@ -12,7 +12,12 @@ function setFiltersParam(p: URLSearchParams, filters?: FilterSpec[] | null): voi
 
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(path, { ...init, headers: { "content-type": "application/json", ...(init?.headers || {}) } });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`);
+  if (!r.ok) {
+    const body = await r.text();
+    let detail: unknown;
+    try { detail = JSON.parse(body)?.detail; } catch { /* not JSON */ }
+    throw new Error(typeof detail === "string" ? detail : `${r.status} ${r.statusText}: ${body}`);
+  }
   return r.json() as Promise<T>;
 }
 

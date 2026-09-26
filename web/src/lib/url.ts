@@ -15,9 +15,10 @@
 // they do not run their own effects, otherwise N parallel reconciliations
 // race on every render (and that thrashes the API).
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "./api";
+import { noticeOpenFailed } from "./notice";
 import { useViewerState } from "./state";
 import type { FilterSpec } from "./types";
 
@@ -243,6 +244,7 @@ export function UrlSyncBridge() {
   // Stable serialization for the mirror effect's dep array (v.filters is a fresh
   // array reference on every SSE patch, even when its contents are unchanged).
   const filtersKey = JSON.stringify(v.filters ?? []);
+  const [resync, setResync] = useState(0);
 
   useEffect(() => {
     if (initialized.current) return;
@@ -250,7 +252,16 @@ export function UrlSyncBridge() {
     const url = readUrl(params);
     (async () => {
       if (url.path && url.path !== v.dataset_path) {
-        await api.openDataset(url.path);
+        try {
+          await api.openDataset(url.path);
+        } catch (e) {
+          // The rest of the URL described that dataset: drop it, and let the
+          // mirror rewrite the URL to what is actually on screen.
+          noticeOpenFailed(url.path, e);
+          mountSynced.current = true;
+          setResync((n) => n + 1);
+          return;
+        }
       }
       // Always issue the call so the API's persistent state matches the URL.
       await api.setFilters(compileFilters(url.filters));
@@ -342,7 +353,7 @@ export function UrlSyncBridge() {
       return prev;
     }, { replace: true });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [v.dataset_path, v.row_idx, v.shuffle_seed, v.sort_column, v.sort_desc, v.sql_query, v.sql_mode, filtersKey]);
+  }, [v.dataset_path, v.row_idx, v.shuffle_seed, v.sort_column, v.sort_desc, v.sql_query, v.sql_mode, filtersKey, resync]);
 
   return null;
 }

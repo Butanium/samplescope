@@ -22,8 +22,9 @@ import { useViewerState } from "../lib/state";
 import { useUrlSync, type RenderView } from "../lib/url";
 import { api } from "../lib/api";
 import { nextIdx, prevIdx, nextMember, prevMember } from "../lib/nav";
-import { MessageSquare, Database, Star, Scale, Terminal, HelpCircle, Highlighter, Image as ImageIcon, ChevronDown, ChevronUp, LineChart as LineChartIcon, Table as TableIcon, PieChart } from "lucide-react";
+import { MessageSquare, Database, X, Star, Scale, Terminal, HelpCircle, Highlighter, Image as ImageIcon, ChevronDown, ChevronUp, LineChart as LineChartIcon, Table as TableIcon, PieChart } from "lucide-react";
 import { cn } from "../lib/utils";
+import { dismissNotice, useNotice } from "../lib/notice";
 
 export default function Layout() {
   const v = useViewerState();
@@ -110,8 +111,9 @@ export default function Layout() {
           window.addEventListener("mouseup", onUp);
         }}
       />
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0 relative">
         <DatasetHeader />
+        <NoticeBanner />
         <div className="flex-1 min-h-0 flex">
           <div className="flex-1 min-w-0 overflow-hidden">
             <ViewSwitch />
@@ -300,5 +302,25 @@ function ViewToggleButton({ active, onClick, icon, label }: { active: boolean; o
       {icon}
       {label}
     </button>
+  );
+}
+
+/** The transient app-wide notice, floating just under the header. */
+function NoticeBanner() {
+  const n = useNotice();
+  if (!n) return null;
+  return (
+    <div className="absolute top-14 inset-x-0 z-40 flex justify-center pointer-events-none px-4">
+      <div
+        role="alert"
+        key={n.id}
+        className="pointer-events-auto max-w-2xl flex items-start gap-2 px-3 py-2 rounded border text-xs shadow-sm border-amber-400/70 bg-amber-50 text-amber-900 dark:border-amber-500/50 dark:bg-amber-950 dark:text-amber-100"
+      >
+        <span className="break-words min-w-0">{n.text}</span>
+        <button onClick={dismissNotice} title="dismiss" className="shrink-0 opacity-70 hover:opacity-100">
+          <X size={13} />
+        </button>
+      </div>
+    </div>
   );
 }

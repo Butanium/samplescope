@@ -60,3 +60,14 @@ def test_cli_filter_add_list_rm_clear(server: str, state_home: Path, dataset_dir
         assert "0 filter(s)" in r.stdout
     finally:
         _viewer(["clear-filter"], dataset_dir, state_home)
+
+
+def test_cli_open_accepts_cwd_relative_path(server: str, state_home: Path, dataset_dir: Path):
+    """From a subdirectory, `open` takes a path relative to cwd (what a shell
+    user types) and resolves it to the server's root-relative form."""
+    r = _viewer(["open", "flat.jsonl"], dataset_dir / "nested", state_home)
+    assert r.returncode == 0, r.stderr
+    assert '"path": "nested/flat.jsonl"' in r.stdout, r.stdout
+    r = _viewer(["open", "missing.jsonl"], dataset_dir, state_home)
+    assert r.returncode == 1
+    assert "no such file under the serving root: missing.jsonl" in r.stderr, r.stderr

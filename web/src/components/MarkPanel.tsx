@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import { noticeOpenFailed } from "../lib/notice";
 import { useViewerState } from "../lib/state";
 import { X } from "lucide-react";
 import { useState } from "react";
@@ -37,7 +38,7 @@ export default function MarkPanel({ onClose }: { onClose: () => void }) {
             key={`${m.dataset_path}::${m.row_idx}`}
             onClick={(e) => {
               if (pin(e, { kind: "mark", path: m.dataset_path, idx: m.row_idx, tags: m.tags, note: m.note })) return;
-              if (m.dataset_path !== v.dataset_path) api.openDataset(m.dataset_path).then(() => api.goto(m.row_idx));
+              if (m.dataset_path !== v.dataset_path) api.openDataset(m.dataset_path).then(() => api.goto(m.row_idx), (e) => noticeOpenFailed(m.dataset_path, e));
               else api.goto(m.row_idx);
             }}
             title="shift+click to pin to chat"

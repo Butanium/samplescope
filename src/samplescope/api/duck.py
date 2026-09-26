@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 import duckdb
+from fastapi import HTTPException
 
 from .settings import SETTINGS
 
@@ -211,10 +212,14 @@ def row_hash(row: dict[str, Any]) -> str:
 
 
 def safe_path(path: str) -> Path:
-    """Resolve a user-supplied relative path against the serving root, refusing escapes."""
+    """Resolve a user-supplied relative path against the serving root, refusing
+    escapes. Raises 400/404 naming the path and the root, so the CLI and the UI
+    can say what went wrong instead of surfacing a bare 500."""
     p = (SETTINGS.root / path).resolve()
     if SETTINGS.root not in p.parents and p != SETTINGS.root:
-        raise ValueError(f"path escapes serving root: {path}")
+        raise HTTPException(400, f"path escapes the serving root: {path} (root: {SETTINGS.root})")
     if not p.exists():
-        raise FileNotFoundError(p)
+        raise HTTPException(404, f"no such file under the serving root: {path} (root: {SETTINGS.root})")
+    if p.is_dir():
+        raise HTTPException(400, f"not a file: {path}")
     return p

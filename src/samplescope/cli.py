@@ -96,6 +96,12 @@ def _check(resp: httpx.Response) -> Any:
     """Raise via _die on HTTP error, otherwise return the JSON body."""
     if resp.status_code >= 400:
         body = resp.text
+        try:
+            detail = resp.json().get("detail")
+        except Exception:
+            detail = None
+        if isinstance(detail, str):
+            body = detail
         _die(f"HTTP {resp.status_code} {resp.request.method} {resp.request.url}\n{body}")
     if not resp.content:
         return None
@@ -191,10 +197,26 @@ def _state() -> dict:
     return _get("/api/state")
 
 
+def _root_relative(path: str) -> str:
+    """The server takes paths relative to its serving root; also accept a path
+    relative to cwd (or absolute) when it names an existing file under that
+    root. Anything else is passed through for the server to judge."""
+    cand = Path(os.path.abspath(Path(path).expanduser()))
+    if not cand.exists():
+        return path
+    root = Path((_get("/api/health") or {}).get("root") or "/")
+    for c in (cand, cand.resolve()):
+        try:
+            return c.relative_to(root).as_posix()
+        except ValueError:
+            continue
+    return path
+
+
 def _resolve_path(path: Optional[str]) -> str:
     """Use the supplied path or fall back to the currently-open dataset."""
     if path:
-        return path
+        return _root_relative(path)
     st = _state()
     if not st.get("dataset_path"):
         _die("no dataset open and no --path supplied")
@@ -271,8 +293,11 @@ def cmd_stats(
 
 @view_app.command("open")
 def cmd_open(path: str) -> None:
-    """Open a dataset in the viewer (UI switches live)."""
-    info = _post("/api/datasets/open", {"path": path})
+    """Open a dataset in the viewer (UI switches live).
+
+    PATH is relative to the serving root, or to cwd / absolute when it names an
+    existing file under that root."""
+    info = _post("/api/datasets/open", {"path": _root_relative(path)})
     _print_json(info)
 
 
