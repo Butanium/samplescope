@@ -14,7 +14,8 @@ const PRETTY_OP: Record<string, string> = { ">=": "≥", "<=": "≤", "!=": "≠
  *  when it matches any column. */
 function chipLabel([col, text, mode]: FilterTriple): string {
   const c = mode === "cmp" ? parseComparison(text) : null;
-  if (c) return `${col} ${PRETTY_OP[c.op] ?? c.op} ${c.value}`;
+  // toPrecision: a histogram bin edge is a raw double (2.9999999999999996).
+  if (c) return `${col} ${PRETTY_OP[c.op] ?? c.op} ${Number(c.value.toPrecision(6))}`;
   const op = mode === "exact" ? "=" : mode === "regex" ? "~" : "≈";
   return col ? `${col} ${op} ${text}` : `${op} ${text}`;
 }

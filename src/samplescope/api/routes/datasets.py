@@ -553,18 +553,22 @@ def _equal_width_histogram(
     if mn == mx:
         return ColumnHistogram(bin_edges=[mn, mn], counts=[nonnull], is_length=is_length)
     width = (mx - mn) / _HISTOGRAM_BINS
-    # Clamp the bin index into [0, bins-1] so the max value lands in the last
-    # bin (its raw index would be `bins`); every non-null value is covered, so
-    # the counts sum to `nonnull`.
+    edges = [mn + i * width for i in range(_HISTOGRAM_BINS)] + [mx]
+    # A value's bin = how many inner edges it reaches, compared against the very
+    # doubles returned in `bin_edges` (string-cast, so exact). The stats view's
+    # click-a-bin filter is `edge_i <= x < edge_i+1` over those same doubles, so
+    # it selects exactly the rows the bar counts; `floor((x - min) / width)`
+    # disagreed with it for values sitting on an edge. The max lands in the
+    # last bin, so the counts sum to `nonnull`.
+    bin_expr = " + ".join(
+        f"CAST({expr} >= CAST('{e!r}' AS DOUBLE) AS INTEGER)" for e in edges[1:-1]
+    )
     binned = cur.execute(
-        f"SELECT greatest(0, least({_HISTOGRAM_BINS - 1}, "
-        f"CAST(floor(({expr} - {mn!r}) / {width!r}) AS INTEGER))) AS b, count(*) AS c "
-        f"FROM {base} WHERE {expr} IS NOT NULL GROUP BY b",
+        f"SELECT {bin_expr} AS b, count(*) AS c FROM {base} WHERE {expr} IS NOT NULL GROUP BY b",
         params,
     ).fetchall()
     got = {int(b): int(c) for b, c in binned}
     counts = [got.get(i, 0) for i in range(_HISTOGRAM_BINS)]
-    edges = [mn + i * width for i in range(_HISTOGRAM_BINS)] + [mx]
     return ColumnHistogram(bin_edges=edges, counts=counts, is_length=is_length)
 
 
@@ -667,27 +671,43 @@ def dataset_stats(
         and BUS.state.dataset_path == path
     ):
         sql_selection = BUS.state.sql_selection
-    inner, params = _build_rows_query(
-        p, filter_specs, shuffle_seed, sort_column, sort_desc, sql_selection,
-    )
     columns: list[ColumnStats] = []
     with cursor() as cur:
-        # Materialize the visible rows once: every column runs several queries,
-        # and against the raw subquery each one re-parsed the whole file (4.5 s
-        # for a 2k-row, 12 MB CSV). A cursor is its own connection, so the temp
-        # table is private to this request.
-        tmp = f"stats_{uuid.uuid4().hex}"
-        cur.execute(f"CREATE TEMP TABLE {tmp} AS SELECT * FROM ({inner}) sub", params)
+        # Materialize each needed row set once: every column runs several
+        # queries, and against the raw subquery each one re-parsed the whole
+        # file (4.5 s for a 2k-row, 12 MB CSV). A cursor is its own connection,
+        # so the temp tables are private to this request.
+        tables: dict[tuple[int, ...], tuple[str, int]] = {}
+
+        def table_without(excluded: tuple[int, ...]) -> tuple[str, int]:
+            if excluded not in tables:
+                specs = [f for i, f in enumerate(filter_specs) if i not in excluded]
+                inner, params = _build_rows_query(
+                    p, specs, shuffle_seed, sort_column, sort_desc, sql_selection,
+                )
+                tmp = f"stats_{uuid.uuid4().hex}"
+                cur.execute(f"CREATE TEMP TABLE {tmp} AS SELECT * FROM ({inner}) sub", params)
+                tables[excluded] = (tmp, int(cur.execute(f"SELECT count(*) FROM {tmp}").fetchone()[0]))
+            return tables[excluded]
+
         try:
-            described = cur.execute(f"DESCRIBE SELECT * FROM {tmp}").fetchall()
-            total_rows = int(cur.execute(f"SELECT count(*) FROM {tmp}").fetchone()[0])
+            visible, total_rows = table_without(())
+            described = cur.execute(f"DESCRIBE SELECT * FROM {visible}").fetchall()
             for row in described:
                 name, dtype = row[0], row[1]
                 if name == "__idx":
                     continue
-                columns.append(_column_stats(cur, tmp, [], name, dtype, total_rows))
+                # Cross-filter: a column's chart ignores the filters on that
+                # column, so its full distribution stays visible with the chosen
+                # values/bins highlighted, and clicking one again removes it.
+                own = tuple(i for i, f in enumerate(filter_specs) if f.column == name)
+                table, n = table_without(own)
+                stats = _column_stats(cur, table, [], name, dtype, n)
+                stats.own_filter_excluded = bool(own)
+                columns.append(stats)
         finally:
-            cur.execute(f"DROP TABLE IF EXISTS {tmp}")
+            for tmp, _ in tables.values():
+                cur.execute(f"DROP TABLE IF EXISTS {tmp}")
     return StatsResponse(path=path, total_rows=total_rows, columns=columns)
 
 

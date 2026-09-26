@@ -22,6 +22,9 @@ const COLORS = [
 const NULL_COLOR = "#a1a1aa"; // zinc-400 — the muted "(null)" slice.
 
 const TOOLTIP_STYLE = { background: "#18181b", border: "1px solid #3f3f46", fontSize: 11, borderRadius: 6 };
+// The box is dark in both themes; without this, a Cell-coloured series item
+// fell back to recharts' dark default text (unreadable).
+const TOOLTIP_TEXT = { color: "#e4e4e7" };
 
 /** Compact numeric formatting: integers as-is, tiny/huge in exponential. */
 function fmtNum(n: number | null | undefined): string {
@@ -66,6 +69,20 @@ export default function StatsView() {
     setFilters(next);
   };
 
+  // Click-a-bin: a `lo ≤ col < hi` chip pair (the last bin closes at the max,
+  // matching how the server bins). Clicking an active bin removes the pair.
+  const toggleRange = (column: string, lo: number, hi: number, last: boolean) => {
+    const pair: FilterTriple[] = [
+      [column, `>= ${lo}`, "cmp"],
+      [column, `${last ? "<=" : "<"} ${hi}`, "cmp"],
+    ];
+    const has = (t: FilterTriple) => url.filters.some((f) => f[0] === t[0] && f[1] === t[1] && f[2] === "cmp");
+    const next = pair.every(has)
+      ? url.filters.filter((f) => !pair.some((t) => f[0] === t[0] && f[1] === t[1] && f[2] === "cmp"))
+      : [...url.filters, ...pair.filter((t) => !has(t))];
+    setFilters(next);
+  };
+
   if (isLoading || !data) return <div className="p-6 text-zinc-500 text-sm">computing stats…</div>;
   if (error) return <div className="p-6 text-red-500 text-sm">stats failed: {String(error)}</div>;
 
@@ -83,7 +100,7 @@ export default function StatsView() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         {gridCols.map((c) => (
-          <ColumnCard key={c.name} col={c} filters={url.filters} onToggle={toggleValue} />
+          <ColumnCard key={c.name} col={c} filters={url.filters} onToggle={toggleValue} onRange={toggleRange} />
         ))}
       </div>
       {indexCols.length > 0 && (
@@ -102,11 +119,12 @@ export default function StatsView() {
 }
 
 function ColumnCard({
-  col, filters, onToggle,
+  col, filters, onToggle, onRange,
 }: {
   col: ColumnStats;
   filters: FilterTriple[];
   onToggle: (column: string, value: string) => void;
+  onRange: (column: string, lo: number, hi: number, last: boolean) => void;
 }) {
   const pctNull = col.count + col.nulls > 0 ? Math.round((col.nulls / (col.count + col.nulls)) * 100) : 0;
   // Values already exact-filtered on this column — rendered as active targets.
@@ -126,20 +144,32 @@ function ColumnCard({
         {col.nulls > 0 && (
           <span className="shrink-0 text-[10px] text-amber-600 dark:text-amber-400">{pctNull}% null</span>
         )}
+        {col.own_filter_excluded && (
+          <span
+            className="shrink-0 text-[10px] text-emerald-700 dark:text-emerald-400"
+            title="this chart ignores the filters on its own column, so you can see and change the selection"
+          >
+            all values
+          </span>
+        )}
         {col.distinct != null && (
           <span className="shrink-0 ml-auto text-[10px] text-zinc-400 dark:text-zinc-600 tabular-nums">
             {col.distinct.toLocaleString()} distinct
           </span>
         )}
       </div>
-      <CardBody col={col} active={active} toggle={toggle} />
+      <CardBody col={col} active={active} toggle={toggle} filters={filters} onRange={onRange} />
     </div>
   );
 }
 
 type CatProps = { active: Set<string>; toggle: (value: string) => void };
 
-function CardBody({ col, active, toggle }: { col: ColumnStats } & CatProps) {
+function CardBody({ col, active, toggle, filters, onRange }: {
+  col: ColumnStats;
+  filters: FilterTriple[];
+  onRange: (column: string, lo: number, hi: number, last: boolean) => void;
+} & CatProps) {
   const tv = col.top_values;
   // Prefer categorical breakdown when present, even if a histogram also exists.
   if (tv && tv.length > 0) {
@@ -147,7 +177,7 @@ function CardBody({ col, active, toggle }: { col: ColumnStats } & CatProps) {
       ? <DonutBody col={col} active={active} toggle={toggle} />
       : <TopBarsBody col={col} active={active} toggle={toggle} />;
   }
-  if (col.histogram) return <HistogramBody col={col} />;
+  if (col.histogram) return <HistogramBody col={col} filters={filters} onRange={onRange} />;
   return (
     <div className="text-[11px] text-zinc-400 dark:text-zinc-600 tabular-nums">
       {col.count.toLocaleString()} non-null · {col.nulls.toLocaleString()} null
@@ -193,7 +223,7 @@ function DonutBody({ col, active, toggle }: { col: ColumnStats } & CatProps) {
                 <Cell key={i} fill={s.color} stroke="none" className={s.clickable ? "cursor-pointer" : undefined} />
               ))}
             </Pie>
-            <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(val: any, name: any) => [val, name]} />
+            <Tooltip contentStyle={TOOLTIP_STYLE} itemStyle={TOOLTIP_TEXT} labelStyle={TOOLTIP_TEXT} formatter={(val: any, name: any) => [val, name]} />
           </PieChart>
         </ResponsiveContainer>
       </div>
@@ -248,7 +278,7 @@ function TopBarsBody({ col, active, toggle }: { col: ColumnStats } & CatProps) {
             <XAxis type="number" stroke="#a1a1aa" fontSize={10} allowDecimals={false} />
             <YAxis type="category" dataKey="label" stroke="#a1a1aa" fontSize={10} width={130} tick={{ fontSize: 10 }} />
             <Tooltip
-              contentStyle={TOOLTIP_STYLE}
+              contentStyle={TOOLTIP_STYLE} itemStyle={TOOLTIP_TEXT} labelStyle={TOOLTIP_TEXT}
               formatter={(val: any) => [val, "count"]}
               labelFormatter={(_l: any, p: any) => p?.[0]?.payload?.full ?? ""}
             />
@@ -275,14 +305,30 @@ function TopBarsBody({ col, active, toggle }: { col: ColumnStats } & CatProps) {
   );
 }
 
-/** Numeric / length histogram from bin_edges + counts. */
-function HistogramBody({ col }: { col: ColumnStats }) {
+/** Numeric / length histogram from bin_edges + counts. A numeric column's
+ *  bins are click-to-filter (the whole column is the hit target, so a thin bar
+ *  is still clickable); length histograms aren't — a filter can't take length. */
+function HistogramBody({ col, filters, onRange }: {
+  col: ColumnStats;
+  filters: FilterTriple[];
+  onRange: (column: string, lo: number, hi: number, last: boolean) => void;
+}) {
   const h = col.histogram!;
-  const bars = h.counts.map((count, i) => ({
-    label: fmtNum(h.bin_edges[i]),
-    range: `[${fmtNum(h.bin_edges[i])}, ${fmtNum(h.bin_edges[i + 1])})`,
-    count,
-  }));
+  const clickable = !h.is_length && col.dtype === "numeric";
+  const n = h.counts.length;
+  const cmpTexts = new Set(filters.filter((f) => f[0] === col.name && f[2] === "cmp").map((f) => f[1]));
+  const bars = h.counts.map((count, i) => {
+    const last = i === n - 1;
+    const lo = h.bin_edges[i];
+    const hi = h.bin_edges[i + 1];
+    return {
+      label: fmtNum(lo),
+      range: `[${fmtNum(lo)}, ${fmtNum(hi)}${last ? "]" : ")"}${clickable ? " · click to filter" : ""}`,
+      count,
+      on: cmpTexts.has(`>= ${lo}`) && cmpTexts.has(`${last ? "<=" : "<"} ${hi}`),
+    };
+  });
+  const anyOn = bars.some((b) => b.on);
   const xCaption = h.is_length
     ? col.dtype === "list" ? "length (items)" : "length (chars)"
     : null;
@@ -290,16 +336,29 @@ function HistogramBody({ col }: { col: ColumnStats }) {
     <div>
       <div style={{ width: "100%", height: 140 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={bars} margin={{ left: 4, right: 8, top: 2, bottom: 2 }}>
+          <BarChart
+            data={bars}
+            margin={{ left: 4, right: 8, top: 2, bottom: 2 }}
+            className={clickable ? "cursor-pointer" : undefined}
+            onClick={clickable ? (st: any) => {
+              const i = st?.activeTooltipIndex;
+              if (i == null || i < 0 || i >= n) return;
+              onRange(col.name, h.bin_edges[i], h.bin_edges[i + 1], i === n - 1);
+            } : undefined}
+          >
             <CartesianGrid stroke="#71717a" strokeOpacity={0.15} vertical={false} />
             <XAxis dataKey="label" stroke="#a1a1aa" fontSize={9} interval="preserveStartEnd" />
             <YAxis stroke="#a1a1aa" fontSize={9} allowDecimals={false} width={28} />
             <Tooltip
-              contentStyle={TOOLTIP_STYLE}
+              contentStyle={TOOLTIP_STYLE} itemStyle={TOOLTIP_TEXT} labelStyle={TOOLTIP_TEXT}
               formatter={(val: any) => [val, "count"]}
               labelFormatter={(_l: any, p: any) => p?.[0]?.payload?.range ?? ""}
             />
-            <Bar dataKey="count" fill={COLORS[0]} isAnimationActive={false} radius={[2, 2, 0, 0]} />
+            <Bar dataKey="count" isAnimationActive={false} radius={[2, 2, 0, 0]}>
+              {bars.map((b, i) => (
+                <Cell key={i} fill={!anyOn || b.on ? COLORS[0] : COLORS[1]} />
+              ))}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>

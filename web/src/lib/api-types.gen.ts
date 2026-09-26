@@ -1150,6 +1150,11 @@ export interface components {
              * @default 0
              */
             other_count: number;
+            /**
+             * Own Filter Excluded
+             * @default false
+             */
+            own_filter_excluded: boolean;
             /** Top Values */
             top_values?: components["schemas"]["TopValue"][] | null;
         };

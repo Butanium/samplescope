@@ -120,7 +120,14 @@ aren't self-evident from the code.
   from `nulls`), horizontal bars above that, histogram otherwise — and folds
   `index_like` columns behind a "skipped index-like" footer toggle. Numerics
   with `distinct ≤ 12` get *both* top_values and histogram; the frontend
-  prefers top_values. Also exposed as `sscope view stats [PATH]`.
+  prefers top_values. Also exposed as `sscope view stats [PATH]`. Charts are
+  **cross-filters**: each column's stats ignore the filters *on that column*
+  (`own_filter_excluded`, "all values" on the card), so a clicked category or
+  bin stays visible and a second click removes it. Clicking a numeric bin adds
+  the chip pair `>= lo` / `< hi` (`<=` for the last bin); the server bins by
+  comparing against the very `bin_edges` doubles it returns, so a bar's count
+  equals its filter's row count exactly. Each needed row set is materialized
+  once per request as a temp table (per-column queries re-parsed the file).
 
 - **Schema-keyed top-level field layout (JSON cards *and* chat metadata).**
   For JSON cards only the *outermost* object of each row gets it (nested cards

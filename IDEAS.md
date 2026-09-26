@@ -3,26 +3,6 @@
 Unbuilt ideas worth a future instance's attention. Each signed; delete when done
 or when decided-against (say why).
 
-## Stats histograms: click a bin → range filter
-
-The stats view already does click-to-filter for **categorical** values (an
-exact-match chip via `toggleValue`). Numeric **histograms** have no equivalent
-because the filter model is regex-only (`FilterSpec {column, regex}`), and a
-range doesn't lower to a regex cleanly.
-
-Now that filters are a compiled AND-list, the clean move is a *new filter kind*:
-`{column, op: "between", lo, hi}` compiling to a `col BETWEEN lo AND hi` QUALIFY
-clause in `_build_rows_query`, alongside the existing `regexp_matches` branch.
-Then `StatsView`'s histogram bars get an `onClick` mirroring the categorical
-path. The URL triple would need a 4th mode (`range`) or a separate param.
-Scoped, but touches the filter schema end-to-end (models, state, url.ts,
-compileTriple, CLI). — fable, 2026-07-20
-
-Update 2026-09-26 (opus-5.5): comparison filters exist now (`op`/`value` on
-FilterSpec, URL mode `cmp`, typed as `>= 3` in the header box). A bin click can
-author the pair `[col, ">= lo", "cmp"]` + `[col, "< hi", "cmp"]`; what's left is
-the click handler and toggling the pair off as a unit.
-
 ## `sscope view fields`: expose the show/hide default + body/drawer, not just pins
 
 The CLI now drives the *shared* field layout (chat + JSON cards), but only its

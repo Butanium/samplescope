@@ -457,3 +457,27 @@ def test_parquet_chat_detection_e2e(server: str):
     row = httpx.get(f"{server}/api/datasets/row", params={"path": path, "idx": 0}).json()
     msgs = row["messages"]
     assert isinstance(msgs, list) and msgs and msgs[0]["role"]
+
+
+def test_stats_bins_match_bin_filters_and_cross_filter(server: str):
+    """Each histogram bar counts exactly the rows its click-filter selects
+    (`edge_i <= x < edge_i+1`, last bin closed), and a column's own filters are
+    left out of its own chart (cross-filter) while other columns narrow."""
+    path = _path_of(server, "measures.jsonl")
+    st = httpx.get(f"{server}/api/datasets/stats", params={"path": path}).json()
+    h = next(c for c in st["columns"] if c["name"] == "val")["histogram"]
+    edges, counts = h["bin_edges"], h["counts"]
+    for i, want in enumerate(counts):
+        last = i == len(counts) - 1
+        f = [{"column": "val", "op": ">=", "value": edges[i]},
+             {"column": "val", "op": "<=" if last else "<", "value": edges[i + 1]}]
+        page = httpx.get(f"{server}/api/datasets/rows",
+                         params={"path": path, "filters": json.dumps(f), "limit": 1}).json()
+        assert page["total_filtered"] == want, (i, page["total_filtered"], want)
+
+    f = [{"column": "val", "op": "<", "value": 5}]
+    st = httpx.get(f"{server}/api/datasets/stats", params={"path": path, "filters": json.dumps(f)}).json()
+    cols = {c["name"]: c for c in st["columns"]}
+    assert st["total_rows"] == 14  # 0.37 * i < 5 → i <= 13
+    assert cols["val"]["own_filter_excluded"] is True and cols["val"]["count"] == 40
+    assert cols["k"]["own_filter_excluded"] is False and cols["k"]["count"] == 14

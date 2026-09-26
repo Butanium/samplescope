@@ -100,6 +100,9 @@ class ColumnStats(BaseModel):
     histogram: ColumnHistogram | None = None
     top_values: list[TopValue] | None = None  # top 20 by count, desc
     other_count: int = 0     # non-null rows not covered by top_values
+    # Stats computed without this column's own filters (cross-filter), so the
+    # chart keeps its full distribution while the rest of the view narrows.
+    own_filter_excluded: bool = False
 
 
 class StatsResponse(BaseModel):

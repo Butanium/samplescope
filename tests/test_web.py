@@ -553,3 +553,21 @@ def test_tree_hides_tooling_dirs_until_ignore_unchecked(page: Page, server: str,
     finally:
         httpx.put(f"{server}/api/prefs/tree.ignoreEnabled", json={"value": "true"})
         junk.unlink()
+
+
+def test_stats_histogram_bin_click_toggles_range(page: Page, server: str):
+    """Clicking a histogram column adds a `lo ≤ col < hi` chip pair; clicking the
+    same column again removes it (the chart ignores its own filter, so the bin
+    stays where it was)."""
+    page.goto(f"{server}/?path={quote('measures.jsonl')}&view=stats")
+    main = page.get_by_role("main")
+    chart = main.locator("div.rounded-md", has=page.get_by_title("val", exact=True)).locator(".recharts-wrapper").first
+    expect(chart).to_be_visible()
+    box = chart.bounding_box()
+    at = (box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.5)
+    page.mouse.click(*at)
+    expect(page.get_by_title(re.compile(r"^remove filter · val ≥"))).to_have_count(1)
+    expect(page.get_by_title(re.compile(r"^remove filter · val <"))).to_have_count(1)
+    expect(main.get_by_text("all values", exact=True)).to_be_visible()
+    page.mouse.click(*at)
+    expect(page.get_by_title(re.compile(r"^remove filter · val"))).to_have_count(0)

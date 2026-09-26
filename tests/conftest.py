@@ -128,6 +128,10 @@ def dataset_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     (d / "iso_narrow.jsonl").write_text(_iso(["alpha", "beta", "blurb"]))
     (d / "iso_base.jsonl").write_text(_iso(["alpha", "beta", "gamma", "blurb"]))
     (d / "iso_wide.jsonl").write_text(_iso(["alpha", "beta", "gamma", "blurb", "delta"]))
+    # A continuous numeric column (>12 distinct) → a histogram in the stats view.
+    (d / "measures.jsonl").write_text(
+        "\n".join(json.dumps({"k": f"m{i}", "val": round(i * 0.37, 2)}) for i in range(40)) + "\n"
+    )
     # prompt/completion rows with no `messages`: rendered as chat by mapping.
     (d / "pairs.jsonl").write_text(
         "\n".join(
