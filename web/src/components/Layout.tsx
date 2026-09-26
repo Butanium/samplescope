@@ -115,7 +115,9 @@ export default function Layout() {
         <DatasetHeader />
         <NoticeBanner />
         <div className="flex-1 min-h-0 flex">
-          <div className="flex-1 min-w-0 overflow-hidden">
+          {/* Right gutter = the floating rail's footprint (it sits over this
+              pane's right edge, drawer open or not), so it never covers text. */}
+          <div className="flex-1 min-w-0 overflow-hidden" style={{ paddingRight: bubblesCollapsed ? 44 : 56 }}>
             <ViewSwitch />
           </div>
           {drawer !== "none" && (

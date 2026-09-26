@@ -1,31 +1,21 @@
 import { Sun, Moon, Monitor } from "lucide-react";
 import { useTheme } from "../lib/theme";
-import { cn } from "../lib/utils";
 
+const CYCLE = ["system", "light", "dark"] as const;
+const ICON = { system: Monitor, light: Sun, dark: Moon };
+
+/** One button cycling system → light → dark (one rail slot wide). */
 export default function ThemeToggle() {
   const { choice, setChoice } = useTheme();
-  const opts: { v: typeof choice; icon: React.ReactNode; title: string }[] = [
-    { v: "system", icon: <Monitor size={12} />, title: "system" },
-    { v: "light", icon: <Sun size={12} />, title: "light" },
-    { v: "dark", icon: <Moon size={12} />, title: "dark" },
-  ];
+  const next = CYCLE[(CYCLE.indexOf(choice) + 1) % CYCLE.length];
+  const Icon = ICON[choice];
   return (
-    <div className="flex border border-zinc-300 dark:border-zinc-800 rounded overflow-hidden">
-      {opts.map((o) => (
-        <button
-          key={o.v}
-          onClick={() => setChoice(o.v)}
-          title={`theme: ${o.title}`}
-          className={cn(
-            "px-1.5 py-1",
-            choice === o.v
-              ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
-              : "text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800",
-          )}
-        >
-          {o.icon}
-        </button>
-      ))}
-    </div>
+    <button
+      onClick={() => setChoice(next)}
+      title={`theme: ${choice} (click for ${next})`}
+      className="w-7 h-7 rounded-full border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 flex items-center justify-center hover:bg-zinc-200 dark:hover:bg-zinc-800 transition"
+    >
+      <Icon size={13} />
+    </button>
   );
 }
