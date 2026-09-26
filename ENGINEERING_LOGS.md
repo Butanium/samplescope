@@ -46,3 +46,21 @@ instance over a real research repo (read-only).
   header box (no new control): literal mode + a picked column + comparison
   syntax. The CLI can list them but not set them — a new `filter` option would
   change the generated SKILL.md reference, which needs Clément's approval.
+- **Pair files render as chat.** `{prompt, completion}`-style rows (and
+  response/answer/output variants) detect as `chat` with `chat_fields`; the
+  frontend synthesizes `messages`, so the per-file converter scripts research
+  repos had accumulated are unnecessary. Design choices: detection requires the
+  response column itself to carry long text (a gold-label `{question, answer}`
+  file with short answers is not a transcript), and the old card rendering stays
+  one click away as `view=cards`. The `wide_text` test fixture had long
+  `answer`s on half its rows, i.e. it *was* a pair file under the rule; its
+  column was renamed `rationale` because the fixture exists for the cards view.
+- **Skill edits are repo commits.** `~/.claude/skills/samplescope` symlinks into
+  this repo (`src/samplescope/skill/SKILL.md`), and ~/.claude doesn't track it,
+  so skill changes are committed and pushed here. `ls --json` and
+  `filter --cmp` went in with the regenerated reference (Clément approved
+  skill edits for this sweep).
+- Before pushing a sweep, grep the unpushed commit *messages* too, not just the
+  diffs: two messages named a private research column and a home-dir path and
+  were reworded with `git filter-branch --msg-filter` over
+  `origin/master..HEAD` (unpushed only).
