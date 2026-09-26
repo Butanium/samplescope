@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
@@ -669,16 +670,24 @@ def dataset_stats(
     inner, params = _build_rows_query(
         p, filter_specs, shuffle_seed, sort_column, sort_desc, sql_selection,
     )
-    base = f"({inner}) sub"
     columns: list[ColumnStats] = []
     with cursor() as cur:
-        described = cur.execute(f"DESCRIBE SELECT * FROM {base}", params).fetchall()
-        total_rows = int(cur.execute(f"SELECT count(*) FROM {base}", params).fetchone()[0])
-        for row in described:
-            name, dtype = row[0], row[1]
-            if name == "__idx":
-                continue
-            columns.append(_column_stats(cur, base, params, name, dtype, total_rows))
+        # Materialize the visible rows once: every column runs several queries,
+        # and against the raw subquery each one re-parsed the whole file (4.5 s
+        # for a 2k-row, 12 MB CSV). A cursor is its own connection, so the temp
+        # table is private to this request.
+        tmp = f"stats_{uuid.uuid4().hex}"
+        cur.execute(f"CREATE TEMP TABLE {tmp} AS SELECT * FROM ({inner}) sub", params)
+        try:
+            described = cur.execute(f"DESCRIBE SELECT * FROM {tmp}").fetchall()
+            total_rows = int(cur.execute(f"SELECT count(*) FROM {tmp}").fetchone()[0])
+            for row in described:
+                name, dtype = row[0], row[1]
+                if name == "__idx":
+                    continue
+                columns.append(_column_stats(cur, tmp, [], name, dtype, total_rows))
+        finally:
+            cur.execute(f"DROP TABLE IF EXISTS {tmp}")
     return StatsResponse(path=path, total_rows=total_rows, columns=columns)
 
 
