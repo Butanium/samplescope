@@ -571,3 +571,18 @@ def test_stats_histogram_bin_click_toggles_range(page: Page, server: str):
     expect(main.get_by_text("all values", exact=True)).to_be_visible()
     page.mouse.click(*at)
     expect(page.get_by_title(re.compile(r"^remove filter · val"))).to_have_count(0)
+
+
+def test_tree_filter_opens_folders_with_matches(page: Page, server: str, dataset_dir):
+    """A filtered tree shows its matches: folders deeper than the default-open
+    depth used to stay collapsed, hiding the files the count said were found."""
+    f = dataset_dir / "lvl1" / "lvl2" / "lvl3" / "deep_needle.jsonl"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text('{"a": 1}\n')
+    try:
+        page.goto(server)
+        aside = page.get_by_role("complementary").first
+        aside.get_by_placeholder("filter…").fill("deep_needle")
+        expect(aside.get_by_text("deep_needle.jsonl", exact=True)).to_be_visible()
+    finally:
+        f.unlink()

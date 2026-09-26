@@ -110,20 +110,31 @@ export default function DatasetTree() {
   // default" (depth<2 starts open) so first-time users see a sensible tree
   // without us pre-seeding entries for every directory.
   const [openMap, setOpenMap] = usePref<Record<string, boolean>>("tree.openFolders", {});
+  // While a filter narrows the tree, every folder starts open — the matches
+  // were otherwise hidden in collapsed folders. Folds made meanwhile are
+  // transient (reset per query) and never touch the saved map.
+  const filtering = filter.trim() !== "" || onlyOpened;
+  const [filterFolds, setFilterFolds] = useState<Record<string, boolean>>({});
+  useEffect(() => setFilterFolds({}), [filter, onlyOpened]);
   const isOpen = useCallback(
     (path: string, depth: number) => {
+      if (filtering) return filterFolds[path] ?? true;
       const saved = openMap[path];
       return saved == null ? depth < 2 : saved;
     },
-    [openMap],
+    [openMap, filtering, filterFolds],
   );
   const toggle = useCallback(
     (path: string, depth: number) => {
+      if (filtering) {
+        setFilterFolds({ ...filterFolds, [path]: !(filterFolds[path] ?? true) });
+        return;
+      }
       const current = openMap[path];
       const next = current == null ? !(depth < 2) : !current;
       setOpenMap({ ...openMap, [path]: next });
     },
-    [openMap, setOpenMap],
+    [openMap, setOpenMap, filtering, filterFolds],
   );
 
   const { filtered, ignoredCount } = useMemo(() => {
