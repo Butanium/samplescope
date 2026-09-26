@@ -457,3 +457,24 @@ def test_chat_metadata_uses_shared_field_layout(page: Page, server: str):
         reset = main.get_by_title(re.compile("^reset field"))
         if reset.count() > 0:
             reset.click()
+
+
+def test_chat_metadata_stays_folded_beside_arranged_json_layout(page: Page, server: str):
+    """A JSON-card layout records only the policy the user chose, so a chat file
+    borrowing it (records.jsonl's fields ⊇ chat.jsonl's `label` metadata) keeps
+    chat's own hide-metadata default instead of unfolding everything."""
+    page.goto(server)
+    open_file(page, "records.jsonl")
+    main = page.get_by_role("main")
+    try:
+        expect(main.get_by_text("response:", exact=True).first).to_be_visible()
+        main.get_by_title(re.compile("^hide — fold")).first.click()
+        expect(main.get_by_text(re.compile("more field")).first).to_be_visible()
+        open_file(page, "chat.jsonl")
+        expect(page.get_by_text("question 0", exact=True)).to_be_visible()
+        expect(main.get_by_text(re.compile("more field")).first).to_be_visible()
+    finally:
+        open_file(page, "records.jsonl")
+        reset = main.get_by_title(re.compile("^reset field"))
+        if reset.count() > 0:
+            reset.click()

@@ -915,9 +915,10 @@ def _layout_pref_key(schema_key: str) -> str:
     return f"json.fields:{schema_key}"
 
 
-def _get_layout(path: str) -> tuple[dict, list[str], str]:
+def _get_layout(path: str) -> tuple[dict, list[str], str, bool]:
     """Read the field layout the viewer applies to `path`. Returns the layout,
-    the covered columns, and the pref key to write back to."""
+    the covered columns, the pref key to write back to, and where unplaced
+    fields go (the saved policy, else the view's default: hidden for chat)."""
     cols, is_chat = _layout_columns(path)
     key = _layout_pref_key(_field_schema_key(cols))
     raw = (_get("/api/prefs") or {}).get(key)
@@ -932,8 +933,7 @@ def _get_layout(path: str) -> tuple[dict, list[str], str]:
     layout.setdefault("order", [])
     for k in ("hidden", "shown", "header"):
         layout.setdefault(k, [])
-    layout.setdefault("defaultHidden", is_chat)
-    return layout, cols, key
+    return layout, cols, key, bool(layout.get("defaultHidden", is_chat))
 
 
 def _set_layout(key: str, layout: dict, cols: list[str]) -> None:
@@ -946,12 +946,14 @@ def _set_layout(key: str, layout: dict, cols: list[str]) -> None:
         "hidden": keep(layout.get("hidden", [])),
         "shown": keep(layout.get("shown", [])),
         "header": keep(layout.get("header", [])),
-        "defaultHidden": bool(layout.get("defaultHidden")),
         # Marks the layout as deliberately set, exactly like the UI's saves —
         # without it the viewer treats the schema as untouched and may borrow a
         # related schema's layout instead.
         "self": True,
     }
+    # Only an explicit policy is stored (see fieldLayout.tsx `save`).
+    if "defaultHidden" in layout:
+        body["defaultHidden"] = bool(layout["defaultHidden"])
     _put(f"/api/prefs/{quote(key, safe='')}", {"value": json.dumps(body)})
 
 
@@ -966,21 +968,21 @@ def cmd_fields_ls(
 ) -> None:
     """Show the currently-pinned fields for a dataset."""
     p = _resolve_path(path)
-    layout, cols, _ = _get_layout(p)
+    layout, cols, _, hide_default = _get_layout(p)
     header = layout.get("header", [])
-    shown = [c for c in cols if c not in header and _visible(c, layout)]
+    shown = [c for c in cols if c not in header and _visible(c, layout, hide_default)]
     print(f"path={p}")
     print(f"pinned ({len(header)}): {_pin_result(layout)}")
     print(f"in body ({len(shown)}): {', '.join(shown) if shown else '(none)'}")
-    print(f"unlisted fields default to: {'hidden' if layout.get('defaultHidden') else 'shown'}")
+    print(f"unlisted fields default to: {'hidden' if hide_default else 'shown'}")
 
 
-def _visible(col: str, layout: dict) -> bool:
+def _visible(col: str, layout: dict, hide_default: bool) -> bool:
     if col in layout.get("shown", []):
         return True
     if col in layout.get("hidden", []):
         return False
-    return not layout.get("defaultHidden")
+    return not hide_default
 
 
 @fields_app.command("set")
@@ -990,7 +992,7 @@ def cmd_fields_set(
 ) -> None:
     """Replace the pinned-field list for a dataset with the given columns."""
     p = _resolve_path(path)
-    layout, cols, key = _get_layout(p)
+    layout, cols, key, _ = _get_layout(p)
     seen: set[str] = set()
     cleaned: list[str] = []
     for c in columns:
@@ -1012,7 +1014,7 @@ def cmd_fields_add(
 ) -> None:
     """Append a column to the pinned list."""
     p = _resolve_path(path)
-    layout, cols, key = _get_layout(p)
+    layout, cols, key, _ = _get_layout(p)
     if column not in cols:
         _die(f"not a field of this dataset: {column} (have: {', '.join(cols)})")
     if column in layout["header"]:
@@ -1030,7 +1032,7 @@ def cmd_fields_rm(
 ) -> None:
     """Remove a column from the pinned list."""
     p = _resolve_path(path)
-    layout, cols, key = _get_layout(p)
+    layout, cols, key, _ = _get_layout(p)
     if column not in layout["header"]:
         print(f"not pinned: {column}")
         return
@@ -1045,7 +1047,7 @@ def cmd_fields_clear(
 ) -> None:
     """Unpin every field."""
     p = _resolve_path(path)
-    layout, cols, key = _get_layout(p)
+    layout, cols, key, _ = _get_layout(p)
     layout["header"] = []
     _set_layout(key, layout, cols)
     print("cleared.")

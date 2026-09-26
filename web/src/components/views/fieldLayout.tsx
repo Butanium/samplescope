@@ -184,7 +184,9 @@ function useFieldLayout(schemaKey: string, present: string[], fallbackHidden = f
       hidden: keep(layout.hidden),
       shown: keep(layout.shown),
       header: keep(layout.header),
-      defaultHidden,
+      // Only an explicit policy is stored: the view's own fallback must not
+      // travel to a borrower whose fallback differs (JSON cards ↔ chat metadata).
+      defaultHidden: layout.defaultHidden,
       ...next,
       self: true,
     });
