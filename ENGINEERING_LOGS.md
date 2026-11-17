@@ -136,3 +136,6 @@ session, see where each LLM judge flagged an incident, label the judge.
   the whole app, a pinned tab opts out of the shared state entirely (see
   CLAUDE.md). Also fixed here: `useRowPage` / `useRowFeed` were not keyed on
   the SQL selection, so applying one left the visible-row list stale.
+- The datasets sidebar folds (button right of refresh; pref `tree.folded`) to a
+  28 px strip with the unfold button. Folded, `DatasetTree` stays mounted but
+  hidden, because its effect is what records the opened-files history.

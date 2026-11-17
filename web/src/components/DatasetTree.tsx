@@ -6,7 +6,7 @@ import { useViewerState } from "../lib/state";
 import { usePref } from "../lib/prefs";
 import { fmtBytes, cn, copyToClipboard, joinPath } from "../lib/utils";
 import type { DatasetEntry } from "../lib/types";
-import { ChevronRight, ChevronDown, FileText, FileBox, FileJson, FileCode, FileSpreadsheet, Image as ImageIcon, FileType, BookText, Plus, X, EyeOff, RefreshCw, History, Clock } from "lucide-react";
+import { ChevronRight, ChevronDown, FileText, FileBox, FileJson, FileCode, FileSpreadsheet, Image as ImageIcon, FileType, BookText, Plus, X, EyeOff, RefreshCw, History, Clock, PanelLeftClose } from "lucide-react";
 import { usePinHandler } from "../lib/pin";
 import { useUrlSync } from "../lib/url";
 import TabContextMenu from "./ui/TabContextMenu";
@@ -46,7 +46,7 @@ const BUILTIN_IGNORE = new RegExp(
   `(^|/)(${BUILTIN_IGNORE_NAMES.map((n) => n.replace(/[.]/g, "\\.")).join("|")})/`,
 );
 
-export default function DatasetTree() {
+export default function DatasetTree({ onFold }: { onFold?: () => void } = {}) {
   const v = useViewerState();
   const [filter, setFilter] = useState("");
   const { data, isLoading, error, isFetching, refetch } = useQuery({
@@ -240,6 +240,15 @@ export default function DatasetTree() {
             >
               <RefreshCw size={12} className={cn(isFetching && "animate-spin")} />
             </button>
+            {onFold && (
+              <button
+                onClick={onFold}
+                title="fold this sidebar"
+                className="p-0.5 rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
+              >
+                <PanelLeftClose size={13} />
+              </button>
+            )}
           </div>
         </div>
         <input

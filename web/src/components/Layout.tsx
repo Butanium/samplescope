@@ -23,7 +23,7 @@ import { useViewerState } from "../lib/state";
 import { useUrlSync, type RenderView } from "../lib/url";
 import { api } from "../lib/api";
 import { nextIdx, prevIdx, nextMember, prevMember } from "../lib/nav";
-import { MessageSquare, Database, X, Star, Scale, Terminal, HelpCircle, Highlighter, Image as ImageIcon, ChevronDown, ChevronUp, LineChart as LineChartIcon, Table as TableIcon, PieChart, Braces } from "lucide-react";
+import { MessageSquare, Database, X, Star, Scale, Terminal, HelpCircle, Highlighter, Image as ImageIcon, ChevronDown, ChevronUp, PanelLeftOpen, LineChart as LineChartIcon, Table as TableIcon, PieChart, Braces } from "lucide-react";
 import { cn } from "../lib/utils";
 import { dismissNotice, useNotice } from "../lib/notice";
 
@@ -37,6 +37,7 @@ export default function Layout() {
   // fold it down to just the expander + theme toggle. Keyboard shortcuts keep
   // working while collapsed.
   const [bubblesCollapsed, setBubblesCollapsed] = usePref<boolean>("bubblesCollapsed", false);
+  const [treeFolded, setTreeFolded] = usePref<boolean>("tree.folded", false);
   const drawer = url.drawer;
   // A tab pinned to one transcript: no tree, no dataset header, no row stepping
   // (those all act on the shared view, which this tab doesn't show).
@@ -99,13 +100,28 @@ export default function Layout() {
 
   return (
     <div className="flex h-full w-full">
+      {/* Folded, the tree stays mounted (it records the opened-files history). */}
       {!pinned && (
-        <aside style={{ width: treeWidth }} className="shrink-0 border-r border-zinc-200 dark:border-zinc-800 overflow-hidden">
-          <DatasetTree />
+        <aside
+          style={{ width: treeWidth }}
+          className={cn("shrink-0 border-r border-zinc-200 dark:border-zinc-800 overflow-hidden", treeFolded && "hidden")}
+        >
+          <DatasetTree onFold={() => setTreeFolded(true)} />
         </aside>
       )}
+      {!pinned && treeFolded && (
+        <div className="w-7 shrink-0 border-r border-zinc-200 dark:border-zinc-800 flex justify-center pt-2">
+          <button
+            onClick={() => setTreeFolded(false)}
+            title="show the datasets sidebar"
+            className="h-6 p-0.5 rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60"
+          >
+            <PanelLeftOpen size={14} />
+          </button>
+        </div>
+      )}
       <div
-        className={cn("w-1 cursor-col-resize bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-400 dark:hover:bg-zinc-600", pinned && "hidden")}
+        className={cn("w-1 cursor-col-resize bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-400 dark:hover:bg-zinc-600", (pinned || treeFolded) && "hidden")}
         onMouseDown={(e) => {
           const start = e.clientX;
           const startW = treeWidth;
