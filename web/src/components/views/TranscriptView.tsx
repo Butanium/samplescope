@@ -566,36 +566,17 @@ function TranscriptBody(p: {
             )}
           </div>
 
-          {/* overview strip: where the human spoke and where the judges flagged */}
-          <div
-            className="relative w-4 shrink-0 cursor-pointer border-l border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950"
-            title="human messages (left) and flagged events (right); click to jump"
-            onClick={(e) => {
-              const r = e.currentTarget.getBoundingClientRect();
-              const pos = Math.min(n - 1, Math.max(0, Math.floor(((e.clientY - r.top) / r.height) * n)));
-              virtualizer.scrollToIndex(pos, { align: "start" });
-            }}
-          >
-            {virtualItems.length > 0 && (
-              <div
-                className="absolute inset-x-0 bg-zinc-400/25"
-                style={{
-                  top: `${(virtualItems[0].index / n) * 100}%`,
-                  height: `${Math.max(1, ((virtualItems[virtualItems.length - 1].index - virtualItems[0].index + 1) / n) * 100)}%`,
-                }}
-              />
-            )}
-            {visible.map((e, i) => {
-              const rs = refsByEvent.get(e.idx)?.filter((r) => r.role === "action") ?? EMPTY;
-              const marks: React.ReactNode[] = [];
-              const top = `${(i / n) * 100}%`;
-              if (e.kind === "user") marks.push(<div key={`u${i}`} className="absolute left-0 w-1.5 h-[2px] bg-sky-500" style={{ top }} />);
-              if (rs.length) marks.push(<div key={`f${i}`} className="absolute right-0 w-2 h-[3px]" style={{ top, background: refColor(rs[0]) }} />);
-              if (missedIds.includes(e.idx)) marks.push(<div key={`m${i}`} className="absolute inset-x-0 h-[3px] bg-amber-500" style={{ top }} />);
-              if (matches.has(e.idx)) marks.push(<div key={`q${i}`} className="absolute inset-x-1 h-[2px] bg-yellow-400" style={{ top }} />);
-              return marks;
-            })}
-          </div>
+          <Minimap
+            visible={visible}
+            refsByEvent={refsByEvent}
+            missedIds={missedIds}
+            matches={matches}
+            first={virtualItems[0]?.index ?? 0}
+            last={virtualItems[virtualItems.length - 1]?.index ?? 0}
+            onScrollTo={(pos) => virtualizer.scrollToIndex(pos, { align: "center" })}
+            onEvent={selectEvent}
+            onIncident={(r) => selectIncident(r.judge, r.item)}
+          />
         </div>
       </div>
 
@@ -635,6 +616,121 @@ function TranscriptBody(p: {
 }
 
 const EMPTY: EventRef[] = [];
+
+type Tick = { pos: number; idx: number; rank: number; cls: string; color?: string; label: string; ref?: EventRef };
+
+/**
+ * Overview strip beside the transcript: a tick per human message (left) and
+ * per flagged event (right, in the judge's hue), plus missed-event flags and
+ * search hits. It works like a scrollbar (drag to scroll, click to jump) and
+ * like an index: hovering a tick names it, clicking it lands exactly on that
+ * event (and selects the incident).
+ */
+function Minimap(p: {
+  visible: TEvent[]; refsByEvent: Map<number, EventRef[]>; missedIds: number[]; matches: Set<number>;
+  first: number; last: number;
+  onScrollTo: (pos: number) => void; onEvent: (idx: number) => void; onIncident: (r: EventRef) => void;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ y: number; moved: boolean } | null>(null);
+  const [hover, setHover] = useState<{ tick: Tick; y: number; right: number } | null>(null);
+  const n = Math.max(1, p.visible.length);
+  const ticks = useMemo(() => {
+    const out: Tick[] = [];
+    p.visible.forEach((e, pos) => {
+      const action = p.refsByEvent.get(e.idx)?.find((r) => r.role === "action");
+      if (action) {
+        out.push({
+          pos, idx: e.idx, rank: 0, cls: "right-0 w-2.5 h-[3px]", color: refColor(action), ref: action,
+          label: `${action.judgeName} #${action.item}${action.detail ? ` · ${action.detail}` : ""}`,
+        });
+      }
+      if (p.missedIds.includes(e.idx)) out.push({ pos, idx: e.idx, rank: 1, cls: "inset-x-0 h-[3px] bg-amber-500", label: "flagged as missed by the judges" });
+      if (e.kind === "user") {
+        const line = (e.text || "").trim().split("\n")[0];
+        out.push({ pos, idx: e.idx, rank: 2, cls: "left-0 w-2 h-[2px] bg-sky-500", label: `human: ${line.length > 90 ? line.slice(0, 89) + "…" : line}` });
+      }
+      if (p.matches.has(e.idx)) out.push({ pos, idx: e.idx, rank: 3, cls: "inset-x-1 h-[2px] bg-yellow-400", label: "search match" });
+    });
+    return out;
+  }, [p.visible, p.refsByEvent, p.missedIds, p.matches]);
+
+  const rect = () => box.current!.getBoundingClientRect();
+  const posAt = (clientY: number) => {
+    const r = rect();
+    return Math.min(n - 1, Math.max(0, Math.floor(((clientY - r.top) / r.height) * n)));
+  };
+  /** The tick within 7 px of the pointer (flagged events win ties). */
+  const tickAt = (clientY: number): Tick | null => {
+    const r = rect();
+    const y = clientY - r.top;
+    let best: Tick | null = null, bestD = 7;
+    for (const t of ticks) {
+      const d = Math.abs(((t.pos + 0.5) / n) * r.height - y);
+      if (d < bestD || (best && d === bestD && t.rank < best.rank)) { best = t; bestD = d; }
+    }
+    return best;
+  };
+
+  return (
+    <div
+      ref={box}
+      data-transcript-minimap
+      className={cn(
+        "relative w-5 shrink-0 select-none touch-none border-l border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950",
+        hover ? "cursor-pointer" : "cursor-ns-resize",
+      )}
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        drag.current = { y: e.clientY, moved: false };
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (d) {
+          if (Math.abs(e.clientY - d.y) > 3) d.moved = true;
+          if (d.moved) { setHover(null); p.onScrollTo(posAt(e.clientY)); }
+          return;
+        }
+        const tick = tickAt(e.clientY);
+        setHover(tick ? { tick, y: rect().top + ((tick.pos + 0.5) / n) * rect().height, right: window.innerWidth - rect().left + 6 } : null);
+      }}
+      onPointerUp={(e) => {
+        const d = drag.current;
+        drag.current = null;
+        if (!d || d.moved) return;
+        const tick = tickAt(e.clientY);
+        if (tick?.ref) p.onIncident(tick.ref);
+        else if (tick) p.onEvent(tick.idx);
+        else p.onScrollTo(posAt(e.clientY));
+      }}
+      onPointerLeave={() => { if (!drag.current) setHover(null); }}
+    >
+      <div
+        className="absolute inset-x-0 bg-zinc-400/25"
+        style={{ top: `${(p.first / n) * 100}%`, height: `${Math.max(1, ((p.last - p.first + 1) / n) * 100)}%` }}
+      />
+      {ticks.map((t, i) => {
+        const on = hover?.tick === t;
+        return (
+          <div
+            key={i}
+            className={cn("absolute -translate-y-1/2", t.cls, on && "!h-[7px] !inset-x-0 !w-auto ring-1 ring-zinc-900 dark:ring-zinc-100")}
+            style={{ top: `${((t.pos + 0.5) / n) * 100}%`, background: t.color }}
+          />
+        );
+      })}
+      {hover && (
+        <div
+          data-minimap-tip
+          className="pointer-events-none fixed z-50 max-w-[26rem] -translate-y-1/2 truncate rounded border border-zinc-300 bg-white px-2 py-1 text-[12px] text-zinc-800 shadow-md dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+          style={{ top: hover.y, right: hover.right }}
+        >
+          <span className="font-mono text-zinc-500">E{hover.tick.idx}</span> {hover.tick.label}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Stepper({ label, title, onPrev, onNext, count }: {
   label: string; title: string; onPrev: () => void; onNext: () => void; count: number;

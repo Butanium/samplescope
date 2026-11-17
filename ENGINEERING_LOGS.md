@@ -173,3 +173,10 @@ session, see where each LLM judge flagged an incident, label the judge.
   `<field>`, which shows a superset). The panel's row select keeps only the
   two "to label" scopes: the label state is in another file, so it cannot be a
   column filter; "with incidents" was dropped as the filter bar's job.
+- The overview strip beside the transcript is now a `Minimap` component:
+  drag scrolls (it looked like a scrollbar and only took clicks), hovering
+  within 7 px of a tick names the event, and clicking a tick lands exactly on
+  it (selecting the incident for a flagged one) where a click used to jump to
+  the nearest fraction of the list. A press that moves more than 3 px is a
+  drag, anything else a click; hover state lives in the component so pointer
+  moves don't re-render the transcript.
