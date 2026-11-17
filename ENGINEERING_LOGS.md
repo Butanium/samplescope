@@ -124,3 +124,9 @@ session, see where each LLM judge flagged an incident, label the judge.
 - Scale chips colour by level over one five-step ramp (`LEVEL_CLS`); a 1-3
   scale uses steps 1, 3 and 4 of it so its top reads like a high level of the
   1-5 severity scale. `SCALE_MAX` names the scales that are not 1-3.
+- First real judgments (20 sessions × 2 judges): labels are keyed without the
+  file name, because a run directory holds `judgments.jsonl` and derived copies
+  (merged, with a reference judge added) that must share them. One Task call
+  cited by six incidents overflowed the event head, so judge chips sit on their
+  own wrapping row; the cross-judge grid groups with union-find (the greedy
+  pass depended on incident order).

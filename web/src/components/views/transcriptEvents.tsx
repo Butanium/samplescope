@@ -519,14 +519,6 @@ export function EventBlock(p: EventBlockProps) {
           {!open && size > 400 && (
             <span className="shrink-0 text-[11px] text-zinc-500 tabular-nums">{size.toLocaleString()} chars</span>
           )}
-          {refs.map((r, i) => (
-            <RefChip
-              key={i}
-              r={r}
-              active={p.selectedRoles.some((s) => s.judge === r.judge && s.item === r.item && s.role === r.role)}
-              onClick={() => p.onSelectRef(r)}
-            />
-          ))}
           <button
             onClick={(e) => { e.stopPropagation(); p.onToggleMissed(); }}
             title={p.missed ? "remove from “the judges missed this”" : "the judges missed something here"}
@@ -543,6 +535,18 @@ export function EventBlock(p: EventBlockProps) {
             <CopyButton value={() => (ev.kind === "tool_call" && ev.tool_input ? JSON.stringify(ev.tool_input, null, 2) : ev.text)} />
           </span>
         </div>
+        {refs.length > 0 && (
+          <div className="flex flex-wrap gap-1 py-0.5">
+          {refs.map((r, i) => (
+              <RefChip
+                key={i}
+                r={r}
+                active={p.selectedRoles.some((s) => s.judge === r.judge && s.item === r.item && s.role === r.role)}
+                onClick={() => p.onSelectRef(r)}
+              />
+            ))}
+          </div>
+        )}
         {open && (
           <div className="pt-0.5 pb-1">
             <EventBody ev={ev} q={p.q} />

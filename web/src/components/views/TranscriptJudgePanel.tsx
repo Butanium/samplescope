@@ -241,14 +241,22 @@ function Progress({ path, currentRowIdx }: { path: string; currentRowIdx: number
 
 function Overview({ judges, sel, onSelect, labels }: { judges: JudgeRow[]; sel: Selection; onSelect: (judge: number, item: string) => void; labels: LabelRec[] }) {
   type Cell = { judge: number; item: string; inc: any };
-  const clusters: { first: number; cells: Cell[] }[] = [];
-  judges.forEach((j, ji) => (Array.isArray(j.incidents) ? j.incidents : []).forEach((inc: any, i: number) => {
-    const evs: number[] = Array.isArray(inc?.event_ids) ? inc.event_ids : [];
-    let c = clusters.find((cl) => cl.cells.some((x) => overlaps(x.inc?.event_ids, evs)));
-    if (!c) { c = { first: Infinity, cells: [] }; clusters.push(c); }
-    c.cells.push({ judge: ji, item: String(i), inc });
-    c.first = Math.min(c.first, ...evs);
+  const cells: Cell[] = judges.flatMap((j, ji) =>
+    (Array.isArray(j.incidents) ? j.incidents : []).map((inc: any, i: number) => ({ judge: ji, item: String(i), inc })));
+  // Union-find over "cites nearby events": the grouping can't depend on order.
+  const parent = cells.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  cells.forEach((a, i) => cells.forEach((b, k) => {
+    if (k > i && overlaps(a.inc?.event_ids, b.inc?.event_ids)) parent[find(i)] = find(k);
   }));
+  const byRoot = new Map<number, { first: number; cells: Cell[] }>();
+  cells.forEach((c, i) => {
+    const g = byRoot.get(find(i)) ?? { first: Infinity, cells: [] };
+    g.cells.push(c);
+    g.first = Math.min(g.first, ...(Array.isArray(c.inc?.event_ids) ? c.inc.event_ids : []));
+    byRoot.set(find(i), g);
+  });
+  const clusters = [...byRoot.values()];
   clusters.sort((a, b) => a.first - b.first);
   return (
     <div
@@ -318,7 +326,7 @@ export default function TranscriptJudgePanel(p: PanelProps) {
     });
 
   return (
-    <div className="h-full overflow-y-auto text-[13px]" data-transcript-panel>
+    <div className="h-full overflow-y-auto overflow-x-hidden break-words text-[13px]" data-transcript-panel>
       <div className="border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 space-y-1.5">
         <div className="flex items-center gap-2">
           <span className="text-[10.5px] font-semibold uppercase tracking-wider text-zinc-500">your review</span>
@@ -408,9 +416,12 @@ function JudgeSection({ j, ji, others, p }: { j: JudgeRow; ji: number; others: J
           const item = String(i);
           const selected = p.sel?.judge === ji && p.sel.item === item;
           const lab = labelOf("incident", i);
-          const also = others.flatMap((o, oi) =>
-            oi === ji ? [] : (Array.isArray(o.incidents) ? o.incidents : []).flatMap((x: any, xi: number) =>
-              overlaps(x?.event_ids, inc?.event_ids) ? [`${judgeShort(String(o.judge_model))} #${xi}`] : []));
+          const also = others.flatMap((o, oi) => {
+            if (oi === ji) return [];
+            const hits = (Array.isArray(o.incidents) ? o.incidents : []).flatMap((x: any, xi: number) =>
+              overlaps(x?.event_ids, inc?.event_ids) ? [`#${xi}`] : []);
+            return hits.length ? [`${judgeShort(String(o.judge_model))} ${hits.join(" ")}`] : [];
+          });
           return (
             <IncidentCard
               key={i}
@@ -533,9 +544,9 @@ function IncidentCard(c: {
             {pretty(k)} {String(inc[k])}/{SCALE_MAX[k] ?? 3}
           </Chip>
         ))}
-        <span className="ml-auto flex items-center gap-1.5">
+        <span className="ml-auto flex min-w-0 items-center gap-1.5">
           {c.agreement && (
-            <Chip className={c.agreed ? "border-emerald-600 text-emerald-700 dark:text-emerald-400" : "border-zinc-400 text-zinc-500"}>
+            <Chip className={cn("!whitespace-normal", c.agreed ? "border-emerald-600 text-emerald-700 dark:text-emerald-400" : "border-zinc-400 text-zinc-500")}>
               {c.agreement}
             </Chip>
           )}

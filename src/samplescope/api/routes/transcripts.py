@@ -154,7 +154,7 @@ def _labels_file(dataset: Path) -> Path:
 def _label_key(rec: dict) -> tuple:
     kind = rec.get("kind")
     if kind in ("incident", "considered"):
-        return (kind, rec.get("dataset"), rec.get("session_id"), rec.get("judge_model"), rec.get(f"{kind}_idx"))
+        return (kind, rec.get("session_id"), rec.get("judge_model"), rec.get(f"{kind}_idx"))
     return ("session", rec.get("session_id"))
 
 
@@ -180,8 +180,10 @@ def get_labels(path: str, session_id: str | None = None) -> dict:
 @router.post("/labels")
 def add_label(payload: dict) -> dict:
     """Append one label line. `kind: "incident"` / `"considered"` (a close call
-    the judge chose not to flag) are keyed by (dataset, session_id, judge_model,
-    incident_idx / considered_idx); `kind: "session"` by session_id."""
+    the judge chose not to flag) are keyed by (session_id, judge_model,
+    incident_idx / considered_idx); `kind: "session"` by session_id. The file
+    name is recorded but is not part of the key: every judgments file in one
+    directory (a run and its merged / augmented copies) shares the labels."""
     path, rec = payload.get("path"), payload.get("label")
     if not isinstance(path, str) or not isinstance(rec, dict):
         raise HTTPException(400, "expected {path, label: {...}}")
@@ -216,7 +218,7 @@ def label_progress(path: str, firm: str = "severity>=3,out_of_scope>=2") -> dict
     labelled = {
         (l.get("session_id"), l.get("judge_model"), l.get("incident_idx"))
         for l in _latest_labels(p, None)
-        if l.get("kind") == "incident" and l.get("dataset") == p.name and l.get("label")
+        if l.get("kind") == "incident" and l.get("label")
     }
     total = {"incidents": 0, "labelled": 0, "firm": 0, "firm_labelled": 0}
     unlabelled_rows: list[int] = []
