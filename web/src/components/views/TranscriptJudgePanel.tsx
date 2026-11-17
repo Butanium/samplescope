@@ -4,7 +4,7 @@
 // → quotes, small scalars → chips, long strings → prose), so a rubric revision
 // that adds or renames a field still shows up without a code change.
 
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useViewerState } from "../../lib/state";
 import { Check, X, HelpCircle, Link as LinkIcon, ChevronRight } from "lucide-react";
@@ -116,6 +116,73 @@ function Quote({ label, text, color }: { label: string; text: string; color: str
 }
 
 const pretty = (k: string) => k.replace(/_/g, " ");
+
+type Legend = Record<string, { about?: string; values: Record<string, { name?: string | null; text: string }> }>;
+/** What each value of an incident field means (the run's own rubric). */
+const LegendCtx = createContext<Legend>({});
+const useLevelName = (field: string, value: unknown): string | null =>
+  useContext(LegendCtx)[field]?.values[String(value)]?.name ?? null;
+
+/**
+ * Hovering the wrapped chip shows what its value means: for a numeric scale,
+ * every level with the current one marked; for a category, that category's
+ * definition. Renders the children alone when the rubric says nothing.
+ */
+function Hint({ field, value, children }: { field: string; value: unknown; children: React.ReactNode }) {
+  const entry = useContext(LegendCtx)[field];
+  const [pos, setPos] = useState<React.CSSProperties | null>(null);
+  const key = String(value);
+  if (!entry || !(key in entry.values)) return <>{children}</>;
+  const levels = Object.entries(entry.values);
+  const isScale = levels.every(([k]) => /^\d+$/.test(k));
+  return (
+    <span
+      className="inline-flex min-w-0"
+      onMouseEnter={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        const left = Math.max(8, Math.min(r.left, window.innerWidth - 408));
+        // Below the chip, or above it when the lower half of the window is short.
+        setPos(r.bottom > window.innerHeight * 0.55
+          ? { left, bottom: window.innerHeight - r.top + 6 }
+          : { left, top: r.bottom + 6 });
+      }}
+      onMouseLeave={() => setPos(null)}
+    >
+      {children}
+      {pos && (
+        <div
+          style={pos}
+          className="pointer-events-none fixed z-50 w-[400px] space-y-1 rounded border border-zinc-300 bg-white p-2.5 text-left text-[12.5px] font-normal leading-snug text-zinc-800 shadow-lg whitespace-normal dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+        >
+          <div className="font-semibold">{pretty(field)}</div>
+          {entry.about && <div className="text-zinc-600 dark:text-zinc-400">{entry.about}</div>}
+          {isScale ? levels.map(([k, lv]) => (
+            <div
+              key={k}
+              className={cn("rounded px-1.5 py-0.5", k === key ? "bg-sky-100 dark:bg-sky-900/50" : "text-zinc-600 dark:text-zinc-400")}
+            >
+              <b>{k}{lv.name ? `, ${lv.name}` : ""}</b>: {lv.text}
+            </div>
+          )) : (
+            <div><b>{pretty(key)}</b>: {entry.values[key].text}</div>
+          )}
+        </div>
+      )}
+    </span>
+  );
+}
+
+/** A 1..max scale value as a chip coloured by level, named when the rubric names it. */
+function ScaleChip({ field, value }: { field: string; value: unknown }) {
+  const name = useLevelName(field, value);
+  return (
+    <Hint field={field} value={value}>
+      <Chip className={scaleCls(field, value)}>
+        {pretty(field)} {String(value)}{name ? ` · ${name}` : `/${SCALE_MAX[field] ?? 3}`}
+      </Chip>
+    </Hint>
+  );
+}
 
 /** correct / wrong / unsure toggle + a note; saves on click and on note blur. */
 function LabelRow({ value, note, onChange, hints }: {
@@ -307,9 +374,11 @@ function Overview({ judges, sel, onSelect, labels }: { judges: JudgeRow[]; sel: 
                         #{x.item} {pretty(String(x.inc?.category ?? ""))}
                       </span>
                       {x.inc?.severity != null && (
-                        <span className={cn("ml-1 shrink-0 rounded border px-1 text-[10.5px] whitespace-nowrap", scaleCls("severity", x.inc.severity))}>
-                          sev {String(x.inc.severity)}
-                        </span>
+                        <Hint field="severity" value={x.inc.severity}>
+                          <span className={cn("ml-1 shrink-0 rounded border px-1 text-[10.5px] whitespace-nowrap", scaleCls("severity", x.inc.severity))}>
+                            sev {String(x.inc.severity)}
+                          </span>
+                        </Hint>
                       )}
                     </button>
                   );
@@ -338,7 +407,14 @@ export default function TranscriptJudgePanel(p: PanelProps) {
       ...patch,
     });
 
+  const legendQ = useQuery({
+    queryKey: ["transcript-legend", p.path],
+    queryFn: () => api.transcriptLegend(p.path),
+    staleTime: Infinity,
+  });
+
   return (
+    <LegendCtx.Provider value={legendQ.data?.legend ?? NO_LEGEND}>
     <div className="h-full overflow-y-auto overflow-x-hidden break-words text-[13px]" data-transcript-panel>
       <div className="border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 space-y-1.5">
         <div className="flex items-center gap-2">
@@ -381,8 +457,11 @@ export default function TranscriptJudgePanel(p: PanelProps) {
         <JudgeSection key={j.__idx} j={j} ji={ji} others={judges} p={p} />
       ))}
     </div>
+    </LegendCtx.Provider>
   );
 }
+
+const NO_LEGEND: Legend = {};
 
 function JudgeSection({ j, ji, others, p }: { j: JudgeRow; ji: number; others: JudgeRow[]; p: PanelProps }) {
   const color = JUDGE_COLORS[ji % JUDGE_COLORS.length];
@@ -552,12 +631,12 @@ function IncidentCard(c: {
     >
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="font-mono text-[12px] font-semibold" style={{ color: c.color }}>{c.title}</span>
-        {inc.category != null && <span className="font-semibold text-zinc-900 dark:text-zinc-100">{pretty(String(inc.category))}</span>}
-        {SCALES.filter((k) => inc[k] != null).map((k) => (
-          <Chip key={k} className={scaleCls(k, inc[k])} title={`${pretty(k)}, on a 1-${SCALE_MAX[k] ?? 3} scale`}>
-            {pretty(k)} {String(inc[k])}/{SCALE_MAX[k] ?? 3}
-          </Chip>
-        ))}
+        {inc.category != null && (
+          <Hint field="category" value={inc.category}>
+            <span className="font-semibold text-zinc-900 dark:text-zinc-100">{pretty(String(inc.category))}</span>
+          </Hint>
+        )}
+        {SCALES.filter((k) => inc[k] != null).map((k) => <ScaleChip key={k} field={k} value={inc[k]} />)}
         <span className="ml-auto flex min-w-0 items-center gap-1.5">
           {c.agreement && (
             <Chip className={cn("!whitespace-normal", c.agreed ? "border-emerald-600 text-emerald-700 dark:text-emerald-400" : "border-zinc-400 text-zinc-500")}>
@@ -570,9 +649,11 @@ function IncidentCard(c: {
       {chipKeys.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {chipKeys.map((k) => (
-            <Chip key={k} className="border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400">
-              {pretty(k)}: {pretty(String(inc[k]))}
-            </Chip>
+            <Hint key={k} field={k} value={inc[k]}>
+              <Chip className="border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400">
+                {pretty(k)}: {pretty(String(inc[k]))}
+              </Chip>
+            </Hint>
           ))}
         </div>
       )}

@@ -250,3 +250,56 @@ def label_progress(path: str, firm: str = "severity>=3,out_of_scope>=2") -> dict
     return {**total, "firm_rule": " and ".join(f"{k} ≥ {n:g}" for k, n in terms),
             "incident_rows": incident_rows, "firm_rows": firm_rows,
             "unlabelled_rows": unlabelled_rows, "unlabelled_firm_rows": unlabelled_firm_rows}
+
+
+# Lookahead so blocks nested in a wrapper tag are found too.
+_BLOCK_RE = re.compile(r"(?=<(\w+)>\n(.*?)</\1>)", re.DOTALL)
+_TAG_LINE_RE = re.compile(r"^</?\w+>$", re.MULTILINE)
+_ENTRY_RE = re.compile(r"^(\d+|[a-z][a-z_]*)(?:, ([^:\n]+))?: (.+)$")
+
+
+def _legend_from_prompt(text: str) -> dict:
+    """Value definitions out of a rubric written as tagged blocks, e.g.
+
+        <severity_scale>
+        The cost the action puts on the human.
+        1, negligible: no real cost.
+        2, minor: a little effort to undo.
+        </severity_scale>
+
+    → `{"severity": {"about": "The cost…", "values": {"1": {"name":
+    "negligible", "text": "no real cost."}, …}}}`. The field is the tag minus a
+    `_scale` suffix or a plural (`<categories>` documents `category`)."""
+    legend: dict = {}
+    for tag, body in _BLOCK_RE.findall(text):
+        if _TAG_LINE_RE.search(body):
+            continue  # a wrapper around other blocks, not a scale
+        values, about = {}, []
+        for line in body.splitlines():
+            m = _ENTRY_RE.match(line.strip())
+            if m:
+                values[m.group(1)] = {"name": m.group(2), "text": m.group(3)}
+            elif line.strip() and not values:
+                about.append(line.strip())
+        if len(values) < 2:
+            continue
+        field = tag[: -len("_scale")] if tag.endswith("_scale") else tag
+        field = field[:-3] + "y" if field.endswith("ies") else field
+        legend[field] = {"about": " ".join(about), "values": values}
+    return legend
+
+
+@router.get("/legend")
+def get_legend(path: str) -> dict:
+    """What each value of an incident field means, for the hover reminders:
+    `legend.json` next to the judgments file (`{field: {about, values: {value:
+    {name, text}}}}`) if there is one, else parsed from the `judge_prompt.txt`
+    the run saved beside it."""
+    d = safe_path(path).parent
+    explicit = d / "legend.json"
+    if explicit.is_file():
+        return {"source": str(explicit), "legend": json.loads(explicit.read_text(encoding="utf-8"))}
+    prompt = d / "judge_prompt.txt"
+    if prompt.is_file():
+        return {"source": str(prompt), "legend": _legend_from_prompt(prompt.read_text(encoding="utf-8"))}
+    return {"source": None, "legend": {}}

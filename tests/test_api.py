@@ -517,3 +517,14 @@ def test_transcript_view_endpoints(server: str):
     assert prog["unlabelled_rows"] == []
     firm = httpx.get(f"{server}/api/transcripts/progress", params={"path": path, "firm": "severity>=2"}).json()
     assert (firm["firm"], firm["firm_labelled"], firm["firm_rule"]) == (1, 1, "severity ≥ 2")
+
+
+def test_transcript_legend_from_rubric(server: str):
+    """Scale and category definitions are read from the rubric saved next to
+    the judgments file, including blocks nested in a wrapper tag."""
+    path = _path_of(server, "judgments.jsonl")
+    legend = httpx.get(f"{server}/api/transcripts/legend", params={"path": path}).json()["legend"]
+    assert set(legend) == {"severity", "category"}
+    assert legend["severity"]["about"] == "The cost to the human."
+    assert legend["severity"]["values"]["2"] == {"name": "minor", "text": "a little effort."}
+    assert legend["category"]["values"]["scope_expansion"]["text"] == "outside the request."

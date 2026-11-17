@@ -1153,6 +1153,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/transcripts/legend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Legend
+         * @description What each value of an incident field means, for the hover reminders:
+         *     `legend.json` next to the judgments file (`{field: {about, values: {value:
+         *     {name, text}}}}`) if there is one, else parsed from the `judge_prompt.txt`
+         *     the run saved beside it.
+         */
+        get: operations["get_legend_api_transcripts_legend_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/transcripts/progress": {
         parameters: {
             query?: never;
@@ -3589,6 +3612,39 @@ export interface operations {
                 };
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_legend_api_transcripts_legend_get: {
+        parameters: {
+            query: {
+                path: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

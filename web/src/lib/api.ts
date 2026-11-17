@@ -73,6 +73,9 @@ export const api = {
       incident_rows: number[]; firm_rows: number[];
       unlabelled_rows: number[]; unlabelled_firm_rows: number[];
     }>(`/api/transcripts/progress?${new URLSearchParams({ path })}`),
+  transcriptLegend: (path: string) =>
+    j<{ source: string | null; legend: Record<string, { about?: string; values: Record<string, { name?: string | null; text: string }> }> }>(
+      `/api/transcripts/legend?${new URLSearchParams({ path })}`),
   addTranscriptLabel: (path: string, label: Record<string, any>) =>
     j<{ file: string; labels: Record<string, any>[] }>("/api/transcripts/labels", {
       method: "POST", body: JSON.stringify({ path, label }),

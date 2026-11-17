@@ -139,3 +139,10 @@ session, see where each LLM judge flagged an incident, label the judge.
 - The datasets sidebar folds (button right of refresh; pref `tree.folded`) to a
   28 px strip with the unfold button. Folded, `DatasetTree` stays mounted but
   hidden, because its effect is what records the opened-files history.
+- Hover reminders for incident fields: `/api/transcripts/legend` returns what
+  each value means, from `legend.json` beside the judgments file or, failing
+  that, parsed out of the `judge_prompt.txt` the run saved there (leaf
+  `<x_scale>` / `<categories>` blocks of `value[, name]: text` lines). Scale
+  chips carry the level's name (`severity 3 · moderate`) and a hover box lists
+  every level with the current one marked; a native `title` was too slow and
+  could only say the range.
