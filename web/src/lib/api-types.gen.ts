@@ -1141,8 +1141,10 @@ export interface paths {
         /**
          * Add Label
          * @description Append one label line. `kind: "incident"` / `"considered"` (a close call
-         *     the judge chose not to flag) are keyed by (dataset, session_id, judge_model,
-         *     incident_idx / considered_idx); `kind: "session"` by session_id.
+         *     the judge chose not to flag) are keyed by (session_id, judge_model,
+         *     incident_idx / considered_idx); `kind: "session"` by session_id. The file
+         *     name is recorded but is not part of the key: every judgments file in one
+         *     directory (a run and its merged / augmented copies) shares the labels.
          */
         post: operations["add_label_api_transcripts_labels_post"];
         delete?: never;
