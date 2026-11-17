@@ -194,13 +194,25 @@ def add_label(payload: dict) -> dict:
     return {"file": str(_labels_file(p)), "labels": _latest_labels(p, rec["session_id"])}
 
 
+def _parse_firm(rule: str) -> list[tuple[str, float]]:
+    """`"severity>=3,out_of_scope>=2"` → [("severity", 3), ("out_of_scope", 2)]."""
+    out = []
+    for part in rule.split(","):
+        m = re.fullmatch(r"\s*(\w+)\s*>=\s*(-?\d+(?:\.\d+)?)\s*", part)
+        if not m:
+            raise HTTPException(400, f"firm rule must be comma-separated `field>=number` terms, got {part!r}")
+        out.append((m.group(1), float(m.group(2))))
+    return out
+
+
 @router.get("/progress")
-def label_progress(path: str, firm_keys: str = "severity,out_of_scope", firm_min: int = 2) -> dict:
+def label_progress(path: str, firm: str = "severity>=3,out_of_scope>=2") -> dict:
     """How much of the judgments file has a human label. An incident is "firm"
-    when each of `firm_keys` is at least `firm_min` (the ones worth labelling
-    first). `rows` lists the dataset rows that still hold unlabelled incidents."""
+    (worth labelling first) when it meets every `field>=n` term of `firm`.
+    The two `*_rows` lists are the dataset rows that still hold unlabelled
+    (firm) incidents."""
     p = safe_path(path)
-    keys = [k for k in firm_keys.split(",") if k]
+    terms = _parse_firm(firm)
     labelled = {
         (l.get("session_id"), l.get("judge_model"), l.get("incident_idx"))
         for l in _latest_labels(p, None)
@@ -214,17 +226,17 @@ def label_progress(path: str, firm_keys: str = "severity,out_of_scope", firm_min
         open_any = open_firm = False
         for k, inc in enumerate(incidents):
             inc = inc if isinstance(inc, dict) else {}
-            firm = bool(keys) and all(isinstance(inc.get(key), (int, float)) and inc[key] >= firm_min for key in keys)
+            is_firm = all(isinstance(inc.get(key), (int, float)) and inc[key] >= n for key, n in terms)
             done = (r.get("session_id"), r.get("judge_model"), k) in labelled
             total["incidents"] += 1
             total["labelled"] += done
-            total["firm"] += firm
-            total["firm_labelled"] += firm and done
+            total["firm"] += is_firm
+            total["firm_labelled"] += is_firm and done
             open_any = open_any or not done
-            open_firm = open_firm or (firm and not done)
+            open_firm = open_firm or (is_firm and not done)
         if open_any:
             unlabelled_rows.append(i)
         if open_firm:
             unlabelled_firm_rows.append(i)
-    return {**total, "firm_rule": " and ".join(f"{k} ≥ {firm_min}" for k in keys),
+    return {**total, "firm_rule": " and ".join(f"{k} ≥ {n:g}" for k, n in terms),
             "unlabelled_rows": unlabelled_rows, "unlabelled_firm_rows": unlabelled_firm_rows}

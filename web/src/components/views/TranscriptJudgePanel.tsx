@@ -45,10 +45,24 @@ function verdictCls(v: unknown): string {
   }
 }
 
-function scaleCls(n: unknown): string {
-  return n === 3 ? "bg-red-600 text-white border-red-600"
-    : n === 2 ? "bg-amber-500 text-white border-amber-500"
-    : "border-zinc-400 text-zinc-700 dark:text-zinc-300";
+/** Top of each 1..max scale; a scale not listed is taken as 1-3. */
+const SCALE_MAX: Record<string, number> = { severity: 5 };
+const LEVEL_CLS = [
+  "border-zinc-400 text-zinc-600 dark:text-zinc-300",                       // lowest
+  "border-yellow-500 bg-yellow-200 text-yellow-950",
+  "border-orange-500 bg-orange-500 text-white",
+  "border-red-600 bg-red-600 text-white",
+  "border-fuchsia-950 bg-fuchsia-950 text-white font-semibold",             // highest
+];
+
+/** One class per level, spread over the ramp so the top of a 3-level scale
+ *  looks like the top of a 5-level one. */
+function scaleCls(key: string, n: unknown): string {
+  const max = SCALE_MAX[key] ?? 3;
+  if (typeof n !== "number") return LEVEL_CLS[0];
+  const frac = max > 1 ? (Math.min(max, Math.max(1, n)) - 1) / (max - 1) : 0;
+  const at = max === 3 ? [0, 2, 3][Math.round(frac * 2)] : Math.round(frac * (LEVEL_CLS.length - 1));
+  return LEVEL_CLS[at];
 }
 
 function Chip({ children, className, title }: { children: React.ReactNode; className?: string; title?: string }) {
@@ -264,12 +278,18 @@ function Overview({ judges, sel, onSelect, labels }: { judges: JudgeRow[]; sel: 
                       key={x.item}
                       onClick={() => onSelect(x.judge, x.item)}
                       title="show this incident"
-                      className="min-w-0 truncate rounded border px-1.5 py-px text-left"
+                      className="flex min-w-0 max-w-full items-center rounded border px-1.5 py-px text-left"
                       style={{ borderColor: color, background: on ? color : "transparent", color: on ? "#fff" : undefined }}
                     >
-                      {labelGlyph(labels, String(judges[x.judge]?.judge_model), Number(x.item))}
-                      #{x.item} {pretty(String(x.inc?.category ?? ""))}
-                      {x.inc?.severity != null && <span className="opacity-70"> · sev {String(x.inc.severity)}</span>}
+                      <span className="min-w-0 truncate">
+                        {labelGlyph(labels, String(judges[x.judge]?.judge_model), Number(x.item))}
+                        #{x.item} {pretty(String(x.inc?.category ?? ""))}
+                      </span>
+                      {x.inc?.severity != null && (
+                        <span className={cn("ml-1 shrink-0 rounded border px-1 text-[10.5px] whitespace-nowrap", scaleCls("severity", x.inc.severity))}>
+                          sev {String(x.inc.severity)}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -509,7 +529,9 @@ function IncidentCard(c: {
         <span className="font-mono text-[12px] font-semibold" style={{ color: c.color }}>{c.title}</span>
         {inc.category != null && <span className="font-semibold text-zinc-900 dark:text-zinc-100">{pretty(String(inc.category))}</span>}
         {SCALES.filter((k) => inc[k] != null).map((k) => (
-          <Chip key={k} className={scaleCls(inc[k])} title={`${pretty(k)} (1-3)`}>{pretty(k)} {String(inc[k])}</Chip>
+          <Chip key={k} className={scaleCls(k, inc[k])} title={`${pretty(k)}, on a 1-${SCALE_MAX[k] ?? 3} scale`}>
+            {pretty(k)} {String(inc[k])}/{SCALE_MAX[k] ?? 3}
+          </Chip>
         ))}
         <span className="ml-auto flex items-center gap-1.5">
           {c.agreement && (

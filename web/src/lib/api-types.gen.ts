@@ -1161,8 +1161,9 @@ export interface paths {
         /**
          * Label Progress
          * @description How much of the judgments file has a human label. An incident is "firm"
-         *     when each of `firm_keys` is at least `firm_min` (the ones worth labelling
-         *     first). `rows` lists the dataset rows that still hold unlabelled incidents.
+         *     (worth labelling first) when it meets every `field>=n` term of `firm`.
+         *     The two `*_rows` lists are the dataset rows that still hold unlabelled
+         *     (firm) incidents.
          */
         get: operations["label_progress_api_transcripts_progress_get"];
         put?: never;
@@ -3613,8 +3614,7 @@ export interface operations {
         parameters: {
             query: {
                 path: string;
-                firm_keys?: string;
-                firm_min?: number;
+                firm?: string;
             };
             header?: never;
             path?: never;
