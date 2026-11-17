@@ -27,6 +27,8 @@ type PanelProps = {
   saveLabel: (rec: LabelRec) => void;
   sessionId: string;
   path: string;
+  /** Pinned tab: controls that move the shared view are left out. */
+  pinned: boolean;
   currentRowIdx: number;
 };
 
@@ -209,7 +211,7 @@ type ProgressData = Awaited<ReturnType<typeof api.transcriptProgress>>;
 /** Labelled / total counts for the open file, and a row filter (sessions with
  *  incidents, or with incidents still to label), applied as an SQL selection
  *  so it is in the URL. */
-function Progress({ path, currentRowIdx }: { path: string; currentRowIdx: number }) {
+function Progress({ path, currentRowIdx, pinned }: { path: string; currentRowIdx: number; pinned: boolean }) {
   const v = useViewerState();
   const { data } = useQuery({ queryKey: ["transcript-progress", path], queryFn: () => api.transcriptProgress(path) });
   if (!data) return null;
@@ -222,7 +224,7 @@ function Progress({ path, currentRowIdx }: { path: string; currentRowIdx: number
       await api.goto(currentRowIdx);
       return;
     }
-    const rows = sc.rows(data);
+    const rows = sc.rows(data) ?? [];
     await api.sqlApply("selection", `SELECT __idx FROM t WHERE __idx IN (${rows.length ? rows.join(",") : "-1"}) -- ${sc.label}`);
   };
   return (
@@ -231,7 +233,7 @@ function Progress({ path, currentRowIdx }: { path: string; currentRowIdx: number
         labelled <b>{data.firm_labelled}/{data.firm}</b> firm incidents
         <span className="text-zinc-500"> · {data.labelled}/{data.incidents} all</span>
       </span>
-      <label className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
+      {!pinned && <label className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
         rows
         <select
           value={scope}
@@ -241,11 +243,11 @@ function Progress({ path, currentRowIdx }: { path: string; currentRowIdx: number
         >
           <option value="all">all</option>
           {SCOPES.map((x) => (
-            <option key={x.key} value={x.key}>{x.label} ({x.rows(data).length})</option>
+            <option key={x.key} value={x.key}>{x.label} ({(x.rows(data) ?? []).length})</option>
           ))}
           {scope === "custom" && <option value="custom">custom SQL selection</option>}
         </select>
-      </label>
+      </label>}
     </div>
   );
 }
@@ -365,7 +367,7 @@ export default function TranscriptJudgePanel(p: PanelProps) {
           rows={2}
           className="w-full rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-1.5 py-1 text-[12.5px]"
         />
-        <Progress path={p.path} currentRowIdx={p.currentRowIdx} />
+        <Progress path={p.path} currentRowIdx={p.currentRowIdx} pinned={p.pinned} />
         {p.labelsFile && (
           <div className="text-[11px] text-zinc-500 break-all" title="labels are appended here; the last line per incident wins">
             saved to {p.labelsFile}
@@ -405,7 +407,8 @@ function JudgeSection({ j, ji, others, p }: { j: JudgeRow; ji: number; others: J
         {j.parse_ok === false && <Chip className="bg-red-600 border-red-600 text-white">parse failed</Chip>}
         <span className="text-[11.5px] text-zinc-500">{incidents.length} incident{incidents.length === 1 ? "" : "s"}</span>
         <button
-          onClick={() => api.goto(j.__idx)}
+          onClick={() => { if (!p.pinned) api.goto(j.__idx); }}
+          disabled={p.pinned}
           title="open this judge's row (the table and raw views show that row)"
           className={cn(
             "ml-auto rounded px-1 font-mono text-[11px]",

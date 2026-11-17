@@ -12,6 +12,10 @@
 //     and selected event                        (`ev=<sid8>~<event idx>`); both
 //     carry the session id's first 8 chars so a value left over from another
 //     session is ignored instead of applied to the wrong transcript
+//   - a tab pinned to one transcript            (`pin=<session id>`): such a tab
+//     reads only its own URL (`path` + `pin`), never the shared ViewerState, so
+//     several can sit side by side on different sessions; the bridge below
+//     neither pushes its URL into the shared state nor mirrors state back
 //
 // IMPORTANT: the actual URL↔state effects are owned by `<UrlSyncBridge />`
 // mounted exactly once at the App root. Component-level callers use the
@@ -23,7 +27,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "./api";
 import { noticeOpenFailed } from "./notice";
-import { useViewerState } from "./state";
+import { startViewerStateStream, useViewerState } from "./state";
 import type { FilterSpec } from "./types";
 
 export type DrawerKey = "none" | "chat" | "marks" | "judges" | "sql" | "help" | "highlights" | "plots";
@@ -59,6 +63,7 @@ export type UrlState = {
   groupBy: string | null;
   inc: string | null;
   ev: string | null;
+  pin: string | null;
 };
 
 const DRAWERS: DrawerKey[] = ["none", "chat", "marks", "judges", "sql", "help", "highlights", "plots"];
@@ -84,6 +89,7 @@ export function readUrl(params: URLSearchParams): UrlState {
     groupBy: get("group") || null,
     inc: get("inc") || null,
     ev: get("ev") || null,
+    pin: get("pin") || null,
   };
 }
 
@@ -250,6 +256,16 @@ export function useUrlSync() {
     }, { replace: true });
   }, [setParams]);
 
+  /** Leave pinned-tab mode: the tab goes back to following the shared view. */
+  const unpin = useCallback(() => {
+    startViewerStateStream();
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("pin");
+      return next;
+    }, { replace: true });
+  }, [setParams]);
+
   /**
    * Replace the whole active filter list atomically: writes the canonical
    * `filters` URL param (dropping any legacy `q`/`qcol`/`qmode`) and posts the
@@ -268,7 +284,7 @@ export function useUrlSync() {
     await api.setFilters(compileFilters(filters));
   }, [setParams]);
 
-  return { url, setDrawer, setSession, setViewMode, setView, setRaw, setGroupBy, setFilters, setTranscriptFocus };
+  return { url, setDrawer, setSession, setViewMode, setView, setRaw, setGroupBy, setFilters, setTranscriptFocus, unpin };
 }
 
 /**
@@ -297,6 +313,11 @@ export function UrlSyncBridge() {
     if (initialized.current) return;
     initialized.current = true;
     const url = readUrl(params);
+    if (url.pin) {
+      // A pinned tab never drives the shared view.
+      mountSynced.current = true;
+      return;
+    }
     (async () => {
       if (url.path && url.path !== v.dataset_path) {
         try {
@@ -334,7 +355,9 @@ export function UrlSyncBridge() {
   }, []);
 
   // Mirror server-driven state back into the URL.
+  const pinned = !!params.get("pin");
   useEffect(() => {
+    if (pinned) return;
     // The render-mode override (`view=`) is per-dataset — drop it when switching
     // to a *different* dataset (its available modes differ), but keep a deep-
     // linked `view=` on first load (prevPath is still null then). Folded into the
@@ -400,7 +423,7 @@ export function UrlSyncBridge() {
       return prev;
     }, { replace: true });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [v.dataset_path, v.row_idx, v.shuffle_seed, v.sort_column, v.sort_desc, v.sql_query, v.sql_mode, filtersKey, resync]);
+  }, [v.dataset_path, v.row_idx, v.shuffle_seed, v.sort_column, v.sort_desc, v.sql_query, v.sql_mode, filtersKey, resync, pinned]);
 
   return null;
 }

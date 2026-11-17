@@ -7,7 +7,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, ExternalLink, Pin, Search } from "lucide-react";
 import { api } from "../../lib/api";
 import { useViewerState } from "../../lib/state";
 import { useUrlSync } from "../../lib/url";
@@ -37,14 +37,18 @@ const NAV_LIMIT = 2000;
 
 export default function TranscriptView() {
   const v = useViewerState();
-  const path = v.dataset_path!;
+  const { url } = useUrlSync();
+  // Pinned tab (`pin=<session id>`): the session and file come from this tab's
+  // URL alone; nothing here reads or moves the shared view.
+  const pinned = url.pin && url.path ? url.pin : null;
+  const path = pinned ? url.path! : v.dataset_path!;
 
   // j/k step through the visible (filtered / sorted) rows.
-  const { data: indexPage } = useRowPage("transcript-index", { limit: NAV_LIMIT });
-  usePublishNav(indexPage?.indices);
+  const { data: indexPage } = useRowPage("transcript-index", { limit: NAV_LIMIT, enabled: !pinned });
+  usePublishNav(indexPage?.indices, !pinned);
   // A filter that excludes the open row: show the first row it keeps.
   useEffect(() => {
-    if (!indexPage || indexPage.indices.length === 0) return;
+    if (pinned || !indexPage || indexPage.indices.length === 0) return;
     if (!indexPage.indices.includes(v.row_idx)) api.goto(indexPage.indices[0]).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [indexPage?.indices.join(",")]);
@@ -53,8 +57,9 @@ export default function TranscriptView() {
     queryKey: ["transcript-row", path, v.row_idx],
     queryFn: () => api.row(path, v.row_idx),
     placeholderData: keepPreviousData,
+    enabled: !pinned,
   });
-  const row = rowQ.data;
+  const row = pinned ? { session_id: pinned } : rowQ.data;
   const sid: string | null = typeof row?.session_id === "string" ? row.session_id : null;
 
   const sessQ = useQuery({
@@ -102,8 +107,9 @@ export default function TranscriptView() {
       judgesReady={judgQ.data != null && !judgQ.isPlaceholderData}
       labels={labelsQ.data?.labels ?? []}
       labelsFile={labelsQ.data?.file ?? null}
-      currentRowIdx={v.row_idx}
-      sessionPath={row.session_path ?? null}
+      currentRowIdx={pinned ? -1 : v.row_idx}
+      sessionPath={(row as Record<string, any>).session_path ?? null}
+      pinned={!!pinned}
     />
   );
 }
@@ -115,11 +121,11 @@ function ids(x: unknown): number[] {
 function TranscriptBody(p: {
   path: string; sid: string; session: Record<string, any> | null; sessionError: string | null;
   judges: JudgeRow[]; judgesReady: boolean; labels: LabelRec[]; labelsFile: string | null;
-  currentRowIdx: number; sessionPath: string | null;
+  currentRowIdx: number; sessionPath: string | null; pinned: boolean;
 }) {
   const { path, sid, judges } = p;
   const qc = useQueryClient();
-  const { url, setTranscriptFocus } = useUrlSync();
+  const { url, setTranscriptFocus, unpin } = useUrlSync();
   const sid8 = sid.slice(0, 8);
 
   // Events, with any server-clipped ones swapped for their full version once loaded.
@@ -357,12 +363,16 @@ function TranscriptBody(p: {
     });
   };
 
-  const linkFor = (judge: number, item: string) => {
-    const u = new URLSearchParams({ path });
-    if (p.currentRowIdx) u.set("idx", String(p.currentRowIdx));
-    u.set("inc", `${sid8}~${judges[judge]?.judge_model}~${item}`);
+  // Links open as pinned tabs: they name the session, not a row, and opening
+  // one doesn't move the view other tabs are following.
+  const pinnedLink = (focus: { inc?: string | null; ev?: string | null }) => {
+    const u = new URLSearchParams({ path, pin: sid });
+    if (focus.inc) u.set("inc", focus.inc);
+    if (focus.ev) u.set("ev", focus.ev);
     return `${window.location.origin}${window.location.pathname}?${u}`;
   };
+  const linkFor = (judge: number, item: string) =>
+    pinnedLink({ inc: `${sid8}~${judges[judge]?.judge_model}~${item}` });
 
   const clampStore = useRef(new Map<string, boolean>()).current;
   const [panelWidth, setPanelWidth] = usePref<number>("transcript.panelWidth", 440);
@@ -377,6 +387,25 @@ function TranscriptBody(p: {
         {/* session + reading controls */}
         <div className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-3 py-1.5 space-y-1 text-[12px]">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {p.pinned ? (
+              <button
+                onClick={unpin}
+                title="this tab stays on this session; click to make it follow the shared view again"
+                className="flex items-center gap-1 rounded border border-sky-500 px-1.5 py-px text-sky-700 dark:text-sky-300 hover:bg-sky-500/10"
+              >
+                <Pin size={12} /> pinned tab
+              </button>
+            ) : (
+              <a
+                href={pinnedLink({ inc: url.inc, ev: url.ev })}
+                target="_blank"
+                rel="noreferrer"
+                title="open this session in its own tab (it stays on this session)"
+                className="rounded p-0.5 text-zinc-500 hover:text-sky-600"
+              >
+                <ExternalLink size={13} />
+              </a>
+            )}
             <button
               onClick={() => copyToClipboard(sid)}
               title={`${sid} · click to copy`}
@@ -537,6 +566,7 @@ function TranscriptBody(p: {
           saveLabel={saveLabel}
           sessionId={sid}
           path={path}
+          pinned={p.pinned}
           currentRowIdx={p.currentRowIdx}
         />
       </aside>

@@ -38,6 +38,9 @@ export default function Layout() {
   // working while collapsed.
   const [bubblesCollapsed, setBubblesCollapsed] = usePref<boolean>("bubblesCollapsed", false);
   const drawer = url.drawer;
+  // A tab pinned to one transcript: no tree, no dataset header, no row stepping
+  // (those all act on the shared view, which this tab doesn't show).
+  const pinned = !!url.pin && !!url.path;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -48,6 +51,7 @@ export default function Layout() {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const NEXT = ["j", "ArrowDown", "ArrowRight"];
       const PREV = ["k", "ArrowUp", "ArrowLeft"];
+      if (pinned && [...NEXT, ...PREV, "[", "]", "s"].includes(e.key)) return;
       if (NEXT.includes(e.key)) {
         e.preventDefault();
         const target = nextIdx(v.row_idx);
@@ -91,15 +95,17 @@ export default function Layout() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [v.row_idx, v.row_count, drawer, setDrawer]);
+  }, [v.row_idx, v.row_count, drawer, setDrawer, pinned]);
 
   return (
     <div className="flex h-full w-full">
-      <aside style={{ width: treeWidth }} className="shrink-0 border-r border-zinc-200 dark:border-zinc-800 overflow-hidden">
-        <DatasetTree />
-      </aside>
+      {!pinned && (
+        <aside style={{ width: treeWidth }} className="shrink-0 border-r border-zinc-200 dark:border-zinc-800 overflow-hidden">
+          <DatasetTree />
+        </aside>
+      )}
       <div
-        className="w-1 cursor-col-resize bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-400 dark:hover:bg-zinc-600"
+        className={cn("w-1 cursor-col-resize bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-400 dark:hover:bg-zinc-600", pinned && "hidden")}
         onMouseDown={(e) => {
           const start = e.clientX;
           const startW = treeWidth;
@@ -113,7 +119,7 @@ export default function Layout() {
         }}
       />
       <main className="flex-1 flex flex-col min-w-0 relative">
-        <DatasetHeader />
+        {!pinned && <DatasetHeader />}
         <NoticeBanner />
         <div className="flex-1 min-h-0 flex">
           {/* Right gutter = the floating rail's footprint (it sits over this
@@ -213,6 +219,7 @@ function ViewSwitch() {
   // and survives navigation-driven re-renders. Clearing it on a dataset switch
   // is owned by UrlSyncBridge's mirror (single URL writer — see url.ts).
 
+  if (url.pin && url.path) return <TranscriptView />;
   if (!v.dataset_path) {
     return (
       <div className="h-full w-full flex items-center justify-center text-zinc-500 text-sm">

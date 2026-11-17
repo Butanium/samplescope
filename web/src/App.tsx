@@ -7,7 +7,10 @@ import Layout from "./components/Layout";
 
 export default function App() {
   useEffect(() => {
-    startViewerStateStream();
+    // A tab pinned to one transcript (`pin=`) doesn't follow the shared view, and
+    // skipping its event stream is what lets many of them stay open: browsers
+    // cap HTTP/1.1 at six connections per host, streams included.
+    if (!new URLSearchParams(window.location.search).get("pin")) startViewerStateStream();
     hydrateFromServer();
   }, []);
   return (

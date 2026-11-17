@@ -230,9 +230,11 @@ auto-detects a good view for (detection sniffs the first 64 rows):
   / `reaction_event_ids`, a `category`, 1-3 scales, quotes). The session is a
   separate `{session_id}.json` with `events: [{idx, kind: user|assistant|
   thinking|tool_call|tool_result|system, text, tool_name, tool_input, …}]`,
-  found via `sscope serve <dir> --transcripts <sessions dir>`. Link to an
-  incident with `&inc=<first 8 chars of session_id>~<judge_model>~<i>`, to an
-  event with `&ev=<sid8>~<idx>`. Human labels append to `human_labels.jsonl`
+  found via `sscope serve <dir> --transcripts <sessions dir>`. Link to a
+  session with `?path=<file>&pin=<session_id>` (a tab that stays on that
+  session whatever the shared view does; the human can open many), plus
+  `&inc=<first 8 chars of session_id>~<judge_model>~<i>` for an incident or
+  `&ev=<sid8>~<idx>` for an event. Human labels append to `human_labels.jsonl`
   next to the judgments file.
 - **Card view (per-sample JSON)** — flat rows where some field holds free
   text >200 chars and that aren't one of the chat shapes above. A pair file

@@ -62,13 +62,25 @@ export default function TableRowView() {
                   active && "bg-emerald-950/30",
                 )}
               >
-                <button
-                  onClick={(e) => { e.stopPropagation(); setView("samples"); api.goto(idx); }}
-                  title="open this row in the sample view"
-                  className="w-14 shrink-0 px-2 py-1 text-left text-sky-700 dark:text-sky-400 hover:underline"
+                <a
+                  href={
+                    v.view_kind === "transcript" && typeof r.session_id === "string"
+                      ? `?${new URLSearchParams({ path: v.dataset_path ?? "", pin: r.session_id })}`
+                      : undefined
+                  }
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Ctrl / middle click: the browser opens the pinned tab.
+                    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+                    e.preventDefault();
+                    setView("samples");
+                    api.goto(idx);
+                  }}
+                  title="open this row in the sample view (ctrl-click: in its own tab)"
+                  className="w-14 shrink-0 cursor-pointer px-2 py-1 text-left text-sky-700 dark:text-sky-400 hover:underline"
                 >
                   {idx}
-                </button>
+                </a>
                 {cols.map((c) => (
                   <div key={c} className="px-2 py-1 truncate text-zinc-700 dark:text-zinc-300" style={{ width: 220 }}>
                     {fmtCell(r[c])}

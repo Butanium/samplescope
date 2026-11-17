@@ -130,3 +130,9 @@ session, see where each LLM judge flagged an incident, label the judge.
   cited by six incidents overflowed the event head, so judge chips sit on their
   own wrapping row; the cross-judge grid groups with union-find (the greedy
   pass depended on incident order).
+- Pinned transcript tabs (`pin=<session id>`). Clément wanted several
+  transcripts open side by side; with one process-wide ViewerState every tab
+  showed the row the last one opened. Rather than make row state per-tab for
+  the whole app, a pinned tab opts out of the shared state entirely (see
+  CLAUDE.md). Also fixed here: `useRowPage` / `useRowFeed` were not keyed on
+  the SQL selection, so applying one left the visible-row list stale.

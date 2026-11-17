@@ -211,6 +211,16 @@ aren't self-evident from the code.
   considered-not-flagged entry) and `ev=<sid8>~<event idx>`; the session-id
   prefix is what makes a value left from another row inert, so nothing has to
   clear it on row change (a clear in the mirror raced the mount-time `goto`).
+  **Pinned tabs** (`pin=<session id>` + `path`) are the one place a tab does
+  not follow the shared ViewerState: the transcript is resolved from the URL
+  alone, `UrlSyncBridge` skips both its mount push and its mirror, `App` does
+  not open the state event stream, and `Layout` drops the tree, the dataset
+  header and the row-stepping keys. That is what lets several transcripts sit
+  in separate tabs (a normal tab's `goto` moves every other normal tab), and
+  the missing stream matters on its own: browsers cap HTTP/1.1 at six
+  connections per host, so a stream per tab stalls the seventh tab. Incident
+  copy-links, the header's open-in-tab link and a ctrl-click on a table idx all
+  produce pinned URLs; "pinned tab" in the toolbar unpins.
   `TranscriptBody` is keyed on the *loaded* session id: the previous session
   stays on screen while the next fetches, then fold/focus state resets. Human
   labels are an append-only `human_labels.jsonl` next to the dataset, last line
