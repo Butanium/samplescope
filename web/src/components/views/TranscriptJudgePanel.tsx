@@ -5,6 +5,8 @@
 // that adds or renames a field still shows up without a code change.
 
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useViewerState } from "../../lib/state";
 import { Check, X, HelpCircle, Link as LinkIcon, ChevronRight } from "lucide-react";
 import { api } from "../../lib/api";
 import { cn, copyToClipboard } from "../../lib/utils";
@@ -24,6 +26,7 @@ type PanelProps = {
   labelsFile: string | null;
   saveLabel: (rec: LabelRec) => void;
   sessionId: string;
+  path: string;
   currentRowIdx: number;
 };
 
@@ -173,7 +176,56 @@ function overlaps(a: unknown, b: unknown): boolean {
 
 /** Both judges' incidents on one grid, one line per act: a line with an empty
  *  cell is something only one judge flagged. */
-function Overview({ judges, sel, onSelect }: { judges: JudgeRow[]; sel: Selection; onSelect: (judge: number, item: string) => void }) {
+function labelGlyph(labels: LabelRec[], model: string, idx: number): string {
+  const l = labels.find((x) => x.kind === "incident" && x.judge_model === model && x.incident_idx === idx)?.label;
+  return l === "correct" ? "✓ " : l === "wrong" ? "✗ " : l === "unsure" ? "? " : "";
+}
+
+const MARK = { firm: "-- unlabelled firm incidents", any: "-- unlabelled incidents" };
+
+/** Labelled / total counts for the open file, and a row filter down to what
+ *  still needs a label (applied as an SQL selection, so it is in the URL). */
+function Progress({ path, currentRowIdx }: { path: string; currentRowIdx: number }) {
+  const v = useViewerState();
+  const { data } = useQuery({ queryKey: ["transcript-progress", path], queryFn: () => api.transcriptProgress(path) });
+  if (!data) return null;
+  const q = v.sql_mode === "selection" ? (v.sql_query ?? "") : "";
+  const scope = q.endsWith(MARK.firm) ? "firm" : q.endsWith(MARK.any) ? "any" : q ? "custom" : "all";
+  const apply = async (next: string) => {
+    if (next === "all") {
+      await api.sqlApply("off");
+      await api.goto(currentRowIdx);
+      return;
+    }
+    const rows = next === "firm" ? data.unlabelled_firm_rows : data.unlabelled_rows;
+    const list = rows.length ? rows.join(",") : "-1";
+    await api.sqlApply("selection", `SELECT __idx FROM t WHERE __idx IN (${list}) ${next === "firm" ? MARK.firm : MARK.any}`);
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+      <span title={`firm = ${data.firm_rule}`} className="tabular-nums text-zinc-700 dark:text-zinc-300">
+        labelled <b>{data.firm_labelled}/{data.firm}</b> firm incidents
+        <span className="text-zinc-500"> · {data.labelled}/{data.incidents} all</span>
+      </span>
+      <label className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
+        rows
+        <select
+          value={scope}
+          onChange={(e) => apply(e.target.value)}
+          title="the list is fixed when picked, so a row stays while you label it; pick again to refresh"
+          className="rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-1 py-px text-[12px] text-zinc-800 dark:text-zinc-200"
+        >
+          <option value="all">all</option>
+          <option value="firm">with unlabelled firm incidents ({data.unlabelled_firm_rows.length})</option>
+          <option value="any">with unlabelled incidents ({data.unlabelled_rows.length})</option>
+          {scope === "custom" && <option value="custom">custom SQL selection</option>}
+        </select>
+      </label>
+    </div>
+  );
+}
+
+function Overview({ judges, sel, onSelect, labels }: { judges: JudgeRow[]; sel: Selection; onSelect: (judge: number, item: string) => void; labels: LabelRec[] }) {
   type Cell = { judge: number; item: string; inc: any };
   const clusters: { first: number; cells: Cell[] }[] = [];
   judges.forEach((j, ji) => (Array.isArray(j.incidents) ? j.incidents : []).forEach((inc: any, i: number) => {
@@ -215,6 +267,7 @@ function Overview({ judges, sel, onSelect }: { judges: JudgeRow[]; sel: Selectio
                       className="min-w-0 truncate rounded border px-1.5 py-px text-left"
                       style={{ borderColor: color, background: on ? color : "transparent", color: on ? "#fff" : undefined }}
                     >
+                      {labelGlyph(labels, String(judges[x.judge]?.judge_model), Number(x.item))}
                       #{x.item} {pretty(String(x.inc?.category ?? ""))}
                       {x.inc?.severity != null && <span className="opacity-70"> · sev {String(x.inc.severity)}</span>}
                     </button>
@@ -273,6 +326,7 @@ export default function TranscriptJudgePanel(p: PanelProps) {
           rows={2}
           className="w-full rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-1.5 py-1 text-[12.5px]"
         />
+        <Progress path={p.path} currentRowIdx={p.currentRowIdx} />
         {p.labelsFile && (
           <div className="text-[11px] text-zinc-500 break-all" title="labels are appended here; the last line per incident wins">
             saved to {p.labelsFile}
@@ -281,7 +335,7 @@ export default function TranscriptJudgePanel(p: PanelProps) {
       </div>
 
       {judges.length === 0 && <div className="p-3 text-zinc-500">no judgment rows for this session</div>}
-      {judges.length > 0 && <Overview judges={judges} sel={p.sel} onSelect={p.onSelect} />}
+      {judges.length > 0 && <Overview judges={judges} sel={p.sel} onSelect={p.onSelect} labels={labels} />}
       {judges.map((j, ji) => (
         <JudgeSection key={j.__idx} j={j} ji={ji} others={judges} p={p} />
       ))}

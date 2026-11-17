@@ -343,6 +343,7 @@ function TranscriptBody(p: {
   const saveLabel = useCallback(async (rec: LabelRec) => {
     const res = await api.addTranscriptLabel(path, rec);
     qc.setQueryData(["transcript-labels", path, sid], res);
+    qc.invalidateQueries({ queryKey: ["transcript-progress", path] });
   }, [path, sid, qc]);
   const sessionLabel = p.labels.find((l) => l.kind === "session") ?? {};
   const missedIds: number[] = Array.isArray(sessionLabel.missed_event_ids) ? sessionLabel.missed_event_ids : [];
@@ -535,6 +536,7 @@ function TranscriptBody(p: {
           labelsFile={p.labelsFile}
           saveLabel={saveLabel}
           sessionId={sid}
+          path={path}
           currentRowIdx={p.currentRowIdx}
         />
       </aside>

@@ -509,3 +509,11 @@ def test_transcript_view_endpoints(server: str):
     # Append-only file, last line per key wins.
     assert [l["label"] for l in out["labels"]] == ["correct"]
     assert len(open(out["file"]).read().splitlines()) == 2
+
+    # One incident in the file (severity 2, no out_of_scope → not "firm" by the
+    # default rule), now labelled; no row is left with unlabelled incidents.
+    prog = httpx.get(f"{server}/api/transcripts/progress", params={"path": path}).json()
+    assert (prog["incidents"], prog["labelled"], prog["firm"]) == (1, 1, 0)
+    assert prog["unlabelled_rows"] == []
+    firm = httpx.get(f"{server}/api/transcripts/progress", params={"path": path, "firm_keys": "severity"}).json()
+    assert (firm["firm"], firm["firm_labelled"]) == (1, 1)

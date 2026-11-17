@@ -192,3 +192,39 @@ def add_label(payload: dict) -> dict:
     with _labels_file(p).open("a", encoding="utf-8") as f:
         f.write(json.dumps(line, ensure_ascii=False) + "\n")
     return {"file": str(_labels_file(p)), "labels": _latest_labels(p, rec["session_id"])}
+
+
+@router.get("/progress")
+def label_progress(path: str, firm_keys: str = "severity,out_of_scope", firm_min: int = 2) -> dict:
+    """How much of the judgments file has a human label. An incident is "firm"
+    when each of `firm_keys` is at least `firm_min` (the ones worth labelling
+    first). `rows` lists the dataset rows that still hold unlabelled incidents."""
+    p = safe_path(path)
+    keys = [k for k in firm_keys.split(",") if k]
+    labelled = {
+        (l.get("session_id"), l.get("judge_model"), l.get("incident_idx"))
+        for l in _latest_labels(p, None)
+        if l.get("kind") == "incident" and l.get("dataset") == p.name and l.get("label")
+    }
+    total = {"incidents": 0, "labelled": 0, "firm": 0, "firm_labelled": 0}
+    unlabelled_rows: list[int] = []
+    unlabelled_firm_rows: list[int] = []
+    for i, r in enumerate(_read_jsonl(p)):
+        incidents = r.get("incidents") if isinstance(r.get("incidents"), list) else []
+        open_any = open_firm = False
+        for k, inc in enumerate(incidents):
+            inc = inc if isinstance(inc, dict) else {}
+            firm = bool(keys) and all(isinstance(inc.get(key), (int, float)) and inc[key] >= firm_min for key in keys)
+            done = (r.get("session_id"), r.get("judge_model"), k) in labelled
+            total["incidents"] += 1
+            total["labelled"] += done
+            total["firm"] += firm
+            total["firm_labelled"] += firm and done
+            open_any = open_any or not done
+            open_firm = open_firm or (firm and not done)
+        if open_any:
+            unlabelled_rows.append(i)
+        if open_firm:
+            unlabelled_firm_rows.append(i)
+    return {**total, "firm_rule": " and ".join(f"{k} ≥ {firm_min}" for k in keys),
+            "unlabelled_rows": unlabelled_rows, "unlabelled_firm_rows": unlabelled_firm_rows}

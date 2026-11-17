@@ -114,3 +114,10 @@ session, see where each LLM judge flagged an incident, label the judge.
 - Labels: append-only JSONL beside the dataset rather than `state.marks`, so
   the project's scripts read them without the state DB and they version with
   the results. `label: null` records a cleared label.
+- Review progress: `/api/transcripts/progress` counts labelled vs total
+  incidents (and "firm" ones: every key in `firm_keys` ≥ `firm_min`, default
+  severity and out_of_scope ≥ 2) and lists the rows still holding unlabelled
+  ones. The panel's "rows" select applies that list as an SQL selection
+  (`__idx IN (…)` with a trailing comment naming the scope), so it rides the
+  existing URL/state plumbing. The list is a snapshot on purpose: a row must
+  not vanish from under the reader the moment its last incident is labelled.

@@ -67,6 +67,11 @@ export const api = {
   transcriptLabels: (path: string, sessionId: string) =>
     j<{ file: string; labels: Record<string, any>[] }>(
       `/api/transcripts/labels?${new URLSearchParams({ path, session_id: sessionId })}`),
+  transcriptProgress: (path: string) =>
+    j<{
+      incidents: number; labelled: number; firm: number; firm_labelled: number; firm_rule: string;
+      unlabelled_rows: number[]; unlabelled_firm_rows: number[];
+    }>(`/api/transcripts/progress?${new URLSearchParams({ path })}`),
   addTranscriptLabel: (path: string, label: Record<string, any>) =>
     j<{ file: string; labels: Record<string, any>[] }>("/api/transcripts/labels", {
       method: "POST", body: JSON.stringify({ path, label }),
