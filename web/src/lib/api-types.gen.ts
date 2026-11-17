@@ -1151,6 +1151,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/transcripts/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Label Progress
+         * @description How much of the judgments file has a human label. An incident is "firm"
+         *     when each of `firm_keys` is at least `firm_min` (the ones worth labelling
+         *     first). `rows` lists the dataset rows that still hold unlabelled incidents.
+         */
+        get: operations["label_progress_api_transcripts_progress_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/transcripts/session": {
         parameters: {
             query?: never;
@@ -3564,6 +3586,41 @@ export interface operations {
                 };
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    label_progress_api_transcripts_progress_get: {
+        parameters: {
+            query: {
+                path: string;
+                firm_keys?: string;
+                firm_min?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
