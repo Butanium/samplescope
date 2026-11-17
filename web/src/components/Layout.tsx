@@ -8,6 +8,7 @@ import MetricsView from "./views/MetricsView";
 import EvalLogView from "./views/EvalLogView";
 import JsonTreeView from "./views/JsonTreeView";
 import MarkdownView from "./views/MarkdownView";
+import TranscriptView from "./views/TranscriptView";
 import StatsView from "./views/StatsView";
 import SqlView from "./views/SqlView";
 import ChatDrawer from "./ChatDrawer";
@@ -259,6 +260,7 @@ function ViewSwitch() {
       case "chat": return <ChatRowView />;
       case "eval_log": return <EvalLogView />;
       case "markdown": return <MarkdownView />;
+      case "transcript": return <TranscriptView />;
       // "table"/"metrics" kinds, viewed as samples, render per-record cards.
       default: return <JsonTreeView />;
     }

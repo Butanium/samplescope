@@ -8,6 +8,10 @@
 //   - the row-view sub-mode                     (`mode=list|single`)
 //   - the render-mode override                  (`view=samples|cards|table|plot|stats`)
 //   - whether to render every row as raw JSON   (`raw=1`)
+//   - the transcript view's selected incident   (`inc=<sid8>~<judge model>~<i>`)
+//     and selected event                        (`ev=<sid8>~<event idx>`); both
+//     carry the session id's first 8 chars so a value left over from another
+//     session is ignored instead of applied to the wrong transcript
 //
 // IMPORTANT: the actual URL↔state effects are owned by `<UrlSyncBridge />`
 // mounted exactly once at the App root. Component-level callers use the
@@ -53,6 +57,8 @@ export type UrlState = {
   view: RenderView | null;
   raw: boolean;
   groupBy: string | null;
+  inc: string | null;
+  ev: string | null;
 };
 
 const DRAWERS: DrawerKey[] = ["none", "chat", "marks", "judges", "sql", "help", "highlights", "plots"];
@@ -76,6 +82,8 @@ export function readUrl(params: URLSearchParams): UrlState {
     view: RENDER_VIEWS.includes(get("view") as RenderView) ? (get("view") as RenderView) : null,
     raw: get("raw") === "1",
     groupBy: get("group") || null,
+    inc: get("inc") || null,
+    ev: get("ev") || null,
   };
 }
 
@@ -228,6 +236,20 @@ export function useUrlSync() {
     }, { replace: true });
   }, [setParams]);
 
+  /** Transcript view: set / clear (null) the selected incident and/or event. */
+  const setTranscriptFocus = useCallback((f: { inc?: string | null; ev?: string | null }) => {
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const k of ["inc", "ev"] as const) {
+        if (!(k in f)) continue;
+        const val = f[k];
+        if (val) next.set(k, val);
+        else next.delete(k);
+      }
+      return next;
+    }, { replace: true });
+  }, [setParams]);
+
   /**
    * Replace the whole active filter list atomically: writes the canonical
    * `filters` URL param (dropping any legacy `q`/`qcol`/`qmode`) and posts the
@@ -246,7 +268,7 @@ export function useUrlSync() {
     await api.setFilters(compileFilters(filters));
   }, [setParams]);
 
-  return { url, setDrawer, setSession, setViewMode, setView, setRaw, setGroupBy, setFilters };
+  return { url, setDrawer, setSession, setViewMode, setView, setRaw, setGroupBy, setFilters, setTranscriptFocus };
 }
 
 /**

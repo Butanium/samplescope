@@ -53,6 +53,7 @@ def run_server(
     host: str = "127.0.0.1",
     port: int | None = None,
     reload: bool = False,
+    transcripts: Path | None = None,
 ) -> None:
     """Resolve scan roots, claim a port, and serve the API + web UI.
 
@@ -92,6 +93,10 @@ def run_server(
     os.environ["SAMPLESCOPE_SCAN_ROOTS"] = ":".join(str(d) for d in dirs)
     os.environ["SAMPLESCOPE_HOST"] = host
     os.environ["SAMPLESCOPE_PORT"] = str(port)
+    if transcripts is not None:
+        if not transcripts.expanduser().is_dir():
+            sys.exit(f"not a directory: {transcripts}")
+        os.environ["SAMPLESCOPE_TRANSCRIPTS_DIR"] = str(transcripts.expanduser().resolve())
 
     instances.register(host, port, tuple(dirs))
     # finally + atexit both fire on graceful paths (idempotent); a SIGKILL'd
@@ -129,8 +134,9 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=None, help=f"port to bind (default: first free port from {DEFAULT_PORT})")
     parser.add_argument("--host", default=os.environ.get("SAMPLESCOPE_HOST", "127.0.0.1"), help="host to bind (default: 127.0.0.1)")
     parser.add_argument("--reload", action="store_true", help="dev mode: auto-reload on source change")
+    parser.add_argument("--transcripts", type=Path, default=None, help="directory of {session_id}.json files for the transcript view")
     args = parser.parse_args()
-    run_server(args.dirs, host=args.host, port=args.port, reload=args.reload)
+    run_server(args.dirs, host=args.host, port=args.port, reload=args.reload, transcripts=args.transcripts)
 
 
 if __name__ == "__main__":

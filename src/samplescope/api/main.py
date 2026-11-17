@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .duck import get_conn
-from .routes import datasets, eval_logs, highlights, judges, marks, metrics, plots, prefs, state
+from .routes import datasets, eval_logs, highlights, judges, marks, metrics, plots, prefs, state, transcripts
 from .settings import SETTINGS
 
 # claude-agent-sdk is a default dependency, but degrade gracefully anyway if
@@ -53,6 +53,7 @@ app.include_router(state.router)
 app.include_router(highlights.router)
 app.include_router(prefs.router)
 app.include_router(plots.router)
+app.include_router(transcripts.router)
 
 if chat is not None:
     app.include_router(chat.router)

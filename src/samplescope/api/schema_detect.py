@@ -11,7 +11,7 @@ from typing import Literal
 # `samplescope._openapi` + `web` `npm run gen:types`), so the unions can't drift
 # across the language boundary — adding a kind here flows to the frontend.
 FileKind = Literal["jsonl", "csv", "parquet", "eval", "json", "pdf", "image", "markdown", "other"]
-ViewKind = Literal["chat", "table", "metrics", "eval_log", "json", "markdown"]
+ViewKind = Literal["chat", "table", "metrics", "eval_log", "json", "markdown", "transcript"]
 
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
 
@@ -75,6 +75,8 @@ def detect_view(path: Path, peek: int = 64) -> tuple[ViewKind, dict]:
     # is meaningful) are reported in every branch so the frontend can offer
     # table / plot as alternate renderings of the same multi-sample dataset.
     flat = all(_is_flat(r) for r in rows)
+    if all(_is_transcript_row(r) for r in rows):
+        return "transcript", {"sampled": len(rows), "numeric_cols": _numeric_columns(rows), "tabular": flat}
     if all(_is_chat_row(r) for r in rows):
         return "chat", {"sampled": len(rows), "numeric_cols": _numeric_columns(rows), "tabular": flat}
     return _classify_flat_rows(rows, tabular=flat)
@@ -213,6 +215,14 @@ def _normalize_scalar(v):
         # chat detection and flatness see the same shapes as JSONL rows.
         return v
     return str(v)
+
+
+def _is_transcript_row(row: dict) -> bool:
+    """A judgment over an agent session: a `session_id` naming a transcript file
+    plus the judge's `incidents` (or, for a bare session index, a `session_path`)."""
+    if not isinstance(row.get("session_id"), str):
+        return False
+    return isinstance(row.get("incidents"), list) or isinstance(row.get("session_path"), str)
 
 
 def _is_chat_row(row: dict) -> bool:

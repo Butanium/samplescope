@@ -43,6 +43,8 @@ class Settings:
     state_dir: Path
     state_db: Path
     cache_dir: Path
+    # Where `{session_id}.json` transcripts live (the transcript view); None = unset.
+    transcripts_dir: Path | None
     host: str
     port: int
     chat_model: str | None
@@ -72,12 +74,14 @@ def load_settings() -> Settings:
     state_dir = STATE_HOME / scan_roots_key(roots)
     cache_dir = state_dir / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
+    transcripts_env = os.environ.get("SAMPLESCOPE_TRANSCRIPTS_DIR")
     return Settings(
         root=root,
         scan_roots=roots,
         state_dir=state_dir,
         state_db=state_dir / "state.duckdb",
         cache_dir=cache_dir,
+        transcripts_dir=Path(transcripts_env).expanduser().resolve() if transcripts_env else None,
         host=os.environ.get("SAMPLESCOPE_HOST", "127.0.0.1"),
         port=int(os.environ.get("SAMPLESCOPE_PORT", "8765")),
         chat_model=os.environ.get("SAMPLESCOPE_CHAT_MODEL"),

@@ -50,6 +50,27 @@ export const api = {
     if (q.sort_desc) p.set("sort_desc", "true");
     return j<RowPage>(`/api/datasets/rows?${p}`);
   },
+  // transcripts (agent sessions + judge incidents)
+  transcriptSession: (path: string, sessionId: string, sessionPath?: string | null) => {
+    const p = new URLSearchParams({ path, session_id: sessionId });
+    if (sessionPath) p.set("session_path", sessionPath);
+    return j<Record<string, any>>(`/api/transcripts/session?${p}`);
+  },
+  transcriptEvent: (path: string, sessionId: string, idx: number, sessionPath?: string | null) => {
+    const p = new URLSearchParams({ path, session_id: sessionId, idx: String(idx) });
+    if (sessionPath) p.set("session_path", sessionPath);
+    return j<Record<string, any>>(`/api/transcripts/event?${p}`);
+  },
+  transcriptJudgments: (path: string, sessionId: string) =>
+    j<{ rows: Record<string, any>[] }>(
+      `/api/transcripts/judgments?${new URLSearchParams({ path, session_id: sessionId })}`),
+  transcriptLabels: (path: string, sessionId: string) =>
+    j<{ file: string; labels: Record<string, any>[] }>(
+      `/api/transcripts/labels?${new URLSearchParams({ path, session_id: sessionId })}`),
+  addTranscriptLabel: (path: string, label: Record<string, any>) =>
+    j<{ file: string; labels: Record<string, any>[] }>("/api/transcripts/labels", {
+      method: "POST", body: JSON.stringify({ path, label }),
+    }),
   row: (path: string, idx: number) =>
     j<Record<string, any>>(`/api/datasets/row?path=${encodeURIComponent(path)}&idx=${idx}`),
   groups: (q: {

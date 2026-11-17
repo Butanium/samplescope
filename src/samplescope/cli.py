@@ -1162,13 +1162,16 @@ def cmd_serve(
     reload: bool = typer.Option(
         False, "--reload", help="dev mode: auto-reload on source change"
     ),
+    transcripts: Optional[Path] = typer.Option(
+        None, "--transcripts", help="directory of {session_id}.json files for the transcript view"
+    ),
 ) -> None:
     """Serve the API + web UI for DIRS (bare `sscope <dir>` is shorthand for this)."""
     # Lazy import: serve pulls in uvicorn, which we must keep off the hot path
     # of every `sscope view …` invocation.
     from .serve import run_server
 
-    run_server(dirs or None, host=host, port=port, reload=reload)
+    run_server(dirs or None, host=host, port=port, reload=reload, transcripts=transcripts)
 
 
 def main() -> None:

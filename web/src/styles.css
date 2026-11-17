@@ -115,3 +115,10 @@ mark.viewer-hl.hl-join-r {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
 }
+
+/* Transcript view: the one-shot flash on the event a jump landed on. */
+@keyframes transcript-flash {
+  0% { box-shadow: 0 0 0 3px rgb(56 189 248 / 0.9); }
+  100% { box-shadow: 0 0 0 3px rgb(56 189 248 / 0); }
+}
+.transcript-flash { animation: transcript-flash 1.4s ease-out; }
