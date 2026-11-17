@@ -337,7 +337,7 @@ export function ToolInput({ ev, q }: { ev: TEvent; q: string }) {
     });
     if (rest.edits.every((e: any) => e && pick(e, OLD_KEYS) && pick(e, NEW_KEYS))) delete rest.edits;
   }
-  if (contentKey && !oldKey) {
+  if (contentKey && path && !oldKey) {
     const content = rest[contentKey] as string;
     delete rest[contentKey];
     parts.push(

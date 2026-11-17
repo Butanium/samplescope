@@ -21,7 +21,11 @@ import { setNavIndices } from "./nav";
  */
 export function useRowPage(
   name: string,
-  { limit, offset = 0, enabled = true }: { limit: number; offset?: number; enabled?: boolean },
+  { limit, offset = 0, enabled = true, columns }: {
+    limit: number; offset?: number; enabled?: boolean;
+    /** Project each row to these fields (a view that only needs the order). */
+    columns?: string[];
+  },
 ) {
   const v = useViewerState();
   return useQuery({
@@ -37,10 +41,12 @@ export function useRowPage(
       v.sql_query,
       offset,
       limit,
+      columns?.join(","),
     ],
     queryFn: () =>
       api.rows({
         path: v.dataset_path!,
+        columns,
         offset,
         limit,
         filters: v.filters,

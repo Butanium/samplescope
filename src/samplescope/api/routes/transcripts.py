@@ -299,7 +299,9 @@ def get_legend(path: str) -> dict:
     explicit = d / "legend.json"
     if explicit.is_file():
         return {"source": str(explicit), "legend": json.loads(explicit.read_text(encoding="utf-8"))}
-    prompt = d / "judge_prompt.txt"
-    if prompt.is_file():
+    # `judge_prompt.txt`, or a versioned copy of it (`judge_prompt_v0.9.txt`).
+    prompts = sorted(d.glob("judge_prompt*.txt"))
+    prompt = d / "judge_prompt.txt" if (d / "judge_prompt.txt").is_file() else (prompts[0] if prompts else None)
+    if prompt is not None:
         return {"source": str(prompt), "legend": _legend_from_prompt(prompt.read_text(encoding="utf-8"))}
     return {"source": None, "legend": {}}

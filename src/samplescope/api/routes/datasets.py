@@ -378,9 +378,13 @@ def read_rows(
     shuffle_seed: int | None = None,
     sort_column: str | None = None,
     sort_desc: bool = False,
+    columns: str | None = None,
 ) -> RowPage:
-    """Return a window of rows. `__idx` is the original 0-based row index."""
+    """Return a window of rows. `__idx` is the original 0-based row index.
+    `columns` (comma-separated) keeps only those fields of each row, for a
+    caller that wants the visible order of a wide file without its payload."""
     p = safe_path(path)
+    keep = {c for c in columns.split(",") if c} if columns is not None else None
     filter_specs = _parse_filters(filters, filter_regex, filter_column)
     # SQL-driven selection is read from server state (not query params): the
     # list can be many thousands of indices and would balloon URL length. It
@@ -413,6 +417,8 @@ def read_rows(
         if idx is None and idx_col >= 0:
             idx = r[idx_col]
         indices.append(int(idx) if idx is not None else -1)
+        if keep is not None:
+            d = {k: v for k, v in d.items() if k in keep}
         out.append(_jsonify(d))
     return RowPage(rows=out, indices=indices, offset=offset, limit=limit, total_filtered=int(total))
 

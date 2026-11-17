@@ -33,7 +33,8 @@ const DEFAULT_MODES: Record<ModeKey, Mode> = { thinking: "fold", tool_call: "ope
 /** Human actions are never hidden and open by default. */
 const isHumanAction = (e: TEvent) => !!e.subtype && HUMAN_ACTION_SUBTYPES.has(e.subtype);
 
-const NAV_LIMIT = 2000;
+const NAV_LIMIT = 10_000;
+const NAV_COLUMNS = ["session_id"];
 
 /** The per-row summary columns of a judgments file, i.e. the ones worth a
  *  filter control up front (the rest sit behind the filter bar's fold). */
@@ -49,7 +50,11 @@ export default function TranscriptView() {
   const path = pinned ? url.path! : v.dataset_path!;
 
   // j/k step through the visible (filtered / sorted) rows.
-  const { data: indexPage } = useRowPage("transcript-index", { limit: NAV_LIMIT, enabled: !pinned });
+  const { data: indexPage } = useRowPage("transcript-index", {
+    limit: NAV_LIMIT, enabled: !pinned,
+    // Only the visible order is needed; whole judgment rows run to tens of MB.
+    columns: NAV_COLUMNS,
+  });
   usePublishNav(indexPage?.indices, !pinned);
   // A filter that excludes the open row: show the first row it keeps.
   useEffect(() => {

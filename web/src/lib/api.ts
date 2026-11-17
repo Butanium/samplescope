@@ -39,9 +39,12 @@ export const api = {
     filters?: FilterSpec[] | null;
     shuffle_seed?: number | null;
     sort_column?: string | null; sort_desc?: boolean;
+    /** Keep only these fields of each row (the indices come back regardless). */
+    columns?: string[];
   }) => {
     const p = new URLSearchParams();
     p.set("path", q.path);
+    if (q.columns) p.set("columns", q.columns.join(","));
     if (q.offset != null) p.set("offset", String(q.offset));
     if (q.limit != null) p.set("limit", String(q.limit));
     setFiltersParam(p, q.filters);

@@ -383,6 +383,8 @@ export interface paths {
         /**
          * Read Rows
          * @description Return a window of rows. `__idx` is the original 0-based row index.
+         *     `columns` (comma-separated) keeps only those fields of each row, for a
+         *     caller that wants the visible order of a wide file without its payload.
          */
         get: operations["read_rows_api_datasets_rows_get"];
         put?: never;
@@ -2209,6 +2211,7 @@ export interface operations {
                 shuffle_seed?: number | null;
                 sort_column?: string | null;
                 sort_desc?: boolean;
+                columns?: string | null;
             };
             header?: never;
             path?: never;

@@ -180,3 +180,9 @@ session, see where each LLM judge flagged an incident, label the judge.
   the nearest fraction of the list. A press that moves more than 3 px is a
   drag, anything else a click; hover state lives in the component so pointer
   moves don't re-render the transcript.
+- At 1,688 judgment rows the transcript view's visible-order fetch (whole
+  rows, for j/k) was 34 MB per filter change. `/api/datasets/rows` takes
+  `columns=` and the view asks for `session_id` only (0.1 MB). The legend also
+  accepts a versioned rubric file (`judge_prompt*.txt`), and a tool input's
+  `content` field renders as a written file only when a path sits beside it
+  (a SendMessage `content` was shown as an added-lines diff).
