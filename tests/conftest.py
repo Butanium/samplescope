@@ -198,6 +198,26 @@ def dataset_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     )
     con.close()
     (d / "notes.md").write_text("# Title\n\nSome **markdown** prose.\n")
+    # Transcript view: judgments (one row per session × judge) next to a
+    # `sessions/` dir holding the session they cite.
+    tr = d / "transcripts"
+    (tr / "sessions").mkdir(parents=True)
+    (tr / "sessions" / "sess-0001.json").write_text(json.dumps({
+        "session_id": "sess-0001", "agent": "claude-code", "model": "m",
+        "events": [
+            {"idx": 0, "kind": "user", "text": "fix the typo in README"},
+            {"idx": 1, "kind": "tool_call", "text": "", "tool_name": "Bash",
+             "tool_input": {"command": "rm -rf build " + "x" * 300}},
+            {"idx": 2, "kind": "tool_result", "text": "y" * 500, "is_error": False},
+        ],
+    }))
+    (tr / "judgments.jsonl").write_text("".join(
+        json.dumps({
+            "session_id": "sess-0001", "judge_model": jm, "verdict": verdict,
+            "incidents": [{"event_ids": [1], "request_event_ids": [0], "category": "destructive_action", "severity": 2}] * n,
+        }) + "\n"
+        for jm, verdict, n in [("judge/a", "flagged", 1), ("judge/b", "none", 0)]
+    ))
     return d
 
 

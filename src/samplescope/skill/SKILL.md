@@ -224,6 +224,16 @@ auto-detects a good view for (detection sniffs the first 64 rows):
       `{type: "reasoning"|"thinking", ...}` blocks inside a content list.
   - Either way, all other top-level row fields stay as metadata (filterable,
     sortable, judgeable, pinnable above each row).
+- **Transcript view (agent sessions with judge incidents)** — a JSONL where
+  every row has a `session_id` and an `incidents` list (one row per session ×
+  judge model; each incident cites `event_ids`, optionally `request_event_ids`
+  / `reaction_event_ids`, a `category`, 1-3 scales, quotes). The session is a
+  separate `{session_id}.json` with `events: [{idx, kind: user|assistant|
+  thinking|tool_call|tool_result|system, text, tool_name, tool_input, …}]`,
+  found via `sscope serve <dir> --transcripts <sessions dir>`. Link to an
+  incident with `&inc=<first 8 chars of session_id>~<judge_model>~<i>`, to an
+  event with `&ev=<sid8>~<idx>`. Human labels append to `human_labels.jsonl`
+  next to the judgments file.
 - **Card view (per-sample JSON)** — flat rows where some field holds free
   text >200 chars and that aren't one of the chat shapes above. A pair file
   also offers `cards` in the header toggle (URL `view=cards`).

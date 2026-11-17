@@ -35,6 +35,12 @@ authenticates via `ANTHROPIC_API_KEY` or a logged-in `claude` CLI session.
 - **Datasets** are auto-detected: chat (`messages` array) → bubble view, flat
   rows → virtualized table, `step`-keyed metrics → line chart, CSV/TSV →
   table, `.eval` → inspect log view.
+- **Agent transcripts with judge incidents**: a JSONL of judgments (rows with
+  `session_id` + `incidents`) opens as a transcript view — the session's events
+  (`{session_id}.json`, served from `sscope serve <dir> --transcripts DIR`) with
+  each judge's flagged events marked, both judges side by side, and
+  correct / wrong / unsure labels appended to `human_labels.jsonl` next to the
+  file.
 - **DuckDB reads files on the fly** — no ingest step. Filters use
   `regexp_matches`, shuffling uses `ORDER BY hash(row, seed)`.
 - **Marks** (tags + free-text notes), **judge results**, and prefs persist in

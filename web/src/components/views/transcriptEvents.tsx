@@ -51,8 +51,11 @@ export const ROLE_COLORS: Record<RefRole, string | null> = {
 
 /** Things the human did that are not typed requests (filed under system /
  *  tool_result by the session parser): an interrupt, a `!` shell command, a
- *  local slash command, a refused tool call. */
-export const HUMAN_ACTION_SUBTYPES = new Set(["interrupt", "user_shell", "local_command", "user_rejected"]);
+ *  local slash command, a refused tool call, an answer to the agent's question,
+ *  an approved plan. */
+export const HUMAN_ACTION_SUBTYPES = new Set([
+  "interrupt", "user_shell", "local_command", "user_rejected", "user_answer", "plan_approved",
+]);
 
 export function judgeShort(model: string): string {
   return model.split("/").pop() || model;
@@ -226,7 +229,7 @@ function patchLines(patch: string): DiffLine[] {
   return patch.split("\n").map((s) => {
     if (s.startsWith("+") && !s.startsWith("+++")) return { t: "+", s: s.slice(1) };
     if (s.startsWith("-") && !s.startsWith("---")) return { t: "-", s: s.slice(1) };
-    return { t: " ", s };
+    return { t: " ", s: s.startsWith(" ") ? s.slice(1) : s };
   });
 }
 
@@ -351,27 +354,31 @@ export function ToolInput({ ev, q }: { ev: TEvent; q: string }) {
     }
   }
   const keys = Object.keys(rest);
-  if (keys.length) {
+  const str = (val: any) => (typeof val === "string" ? val : JSON.stringify(val, null, 2));
+  const isShort = (val: any) => { const t = str(val) ?? ""; return t.length <= 160 && !t.includes("\n"); };
+  // Short leftovers (cwd, timeouts, flags) share one line; long ones get a block each.
+  const short = keys.filter((k) => isShort(rest[k]));
+  const long = keys.filter((k) => !isShort(rest[k]));
+  if (short.length) {
     parts.push(
-      <dl key="rest" className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-[12.5px]">
-        {keys.map((k) => {
-          const val = rest[k];
-          const s = typeof val === "string" ? val : JSON.stringify(val, null, 2);
-          const long = s.length > 160 || s.includes("\n");
-          return (
-            <div key={k} className="contents">
-              <dt className="font-mono text-zinc-500">{k}</dt>
-              <dd className="min-w-0">
-                {long
-                  ? <CodeBlock id={`${id}:k:${k}`} text={s} q={q} lines={16} />
-                  : <span className="font-mono text-zinc-800 dark:text-zinc-200 break-all">{hl(s, q)}</span>}
-              </dd>
-            </div>
-          );
-        })}
-      </dl>,
+      <div key="short" className="flex flex-wrap gap-x-4 gap-y-0.5 font-mono text-[12px]">
+        {short.map((k) => (
+          <span key={k} className="min-w-0 break-all">
+            <span className="text-zinc-500">{k}</span>{" "}
+            <span className="text-zinc-800 dark:text-zinc-200">{hl(str(rest[k]) ?? "", q)}</span>
+          </span>
+        ))}
+      </div>,
     );
   }
+  long.forEach((k) => {
+    parts.push(
+      <div key={`k:${k}`}>
+        <div className="font-mono text-[12px] text-zinc-500">{k}</div>
+        <CodeBlock id={`${id}:k:${k}`} text={str(rest[k])} q={q} lines={16} />
+      </div>,
+    );
+  });
   return <div className="space-y-1.5">{parts}</div>;
 }
 
@@ -456,12 +463,9 @@ export function EventBlock(p: EventBlockProps) {
   }, [refs, p.selectedRoles, p.focused]);
 
   const humanAction = !!ev.subtype && HUMAN_ACTION_SUBTYPES.has(ev.subtype);
-  const label =
-    humanAction ? (ev.subtype === "user_rejected" ? "result · refused by the human" : `human action · ${ev.subtype!.replace(/_/g, " ")}`)
-    : ev.kind === "system" && ev.subtype ? `system · ${ev.subtype.replace(/_/g, " ")}`
-    : ev.kind === "user" && ev.subtype ? `human · ${ev.subtype.replace(/_/g, " ")}`
-    : isError ? "result · error"
-    : K.label;
+  const sub = ev.subtype ? ev.subtype.replace(/_/g, " ") : null;
+  const base = humanAction && ev.kind === "system" ? "human action" : isError ? "result · error" : K.label;
+  const label = sub ? `${base} · ${sub}` : base;
   const summary =
     ev.kind === "tool_call" ? toolSummary(ev)
     : !open ? firstLine(ev.text)

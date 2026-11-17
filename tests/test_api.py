@@ -481,3 +481,31 @@ def test_stats_bins_match_bin_filters_and_cross_filter(server: str):
     assert st["total_rows"] == 14  # 0.37 * i < 5 → i <= 13
     assert cols["val"]["own_filter_excluded"] is True and cols["val"]["count"] == 40
     assert cols["k"]["own_filter_excluded"] is False and cols["k"]["count"] == 14
+
+
+def test_transcript_view_endpoints(server: str):
+    """A judgments JSONL detects as `transcript`; its session, the sibling
+    judge rows and the appended labels all come back through /api/transcripts."""
+    path = _path_of(server, "judgments.jsonl")
+    assert httpx.get(f"{server}/api/datasets/info", params={"path": path}).json()["view_kind"] == "transcript"
+
+    q = {"path": path, "session_id": "sess-0001"}
+    sess = httpx.get(f"{server}/api/transcripts/session", params={**q, "clip": 100}).json()
+    assert sess["n_events"] == 3 and [e["kind"] for e in sess["events"]] == ["user", "tool_call", "tool_result"]
+    call, result = sess["events"][1], sess["events"][2]
+    assert call["clipped"] and len(call["tool_input"]["command"]) == 100
+    assert result["clipped"] and result["text_len"] == 500 and len(result["text"]) == 100
+    full = httpx.get(f"{server}/api/transcripts/event", params={**q, "idx": 2}).json()
+    assert len(full["text"]) == 500 and not full["clipped"]
+    assert httpx.get(f"{server}/api/transcripts/session", params={"path": path, "session_id": "nope"}).status_code == 404
+
+    rows = httpx.get(f"{server}/api/transcripts/judgments", params=q).json()["rows"]
+    assert [(r["judge_model"], r["__idx"]) for r in rows] == [("judge/a", 0), ("judge/b", 1)]
+
+    label = {"kind": "incident", "session_id": "sess-0001", "judge_model": "judge/a", "incident_idx": 0, "label": "wrong", "note": ""}
+    httpx.post(f"{server}/api/transcripts/labels", json={"path": path, "label": label})
+    out = httpx.post(f"{server}/api/transcripts/labels", json={"path": path, "label": {**label, "label": "correct"}}).json()
+    assert out["file"].endswith("transcripts/human_labels.jsonl")
+    # Append-only file, last line per key wins.
+    assert [l["label"] for l in out["labels"]] == ["correct"]
+    assert len(open(out["file"]).read().splitlines()) == 2

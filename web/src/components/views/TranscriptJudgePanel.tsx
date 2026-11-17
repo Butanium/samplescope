@@ -4,7 +4,7 @@
 // → quotes, small scalars → chips, long strings → prose), so a rubric revision
 // that adds or renames a field still shows up without a code change.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, X, HelpCircle, Link as LinkIcon, ChevronRight } from "lucide-react";
 import { api } from "../../lib/api";
 import { cn, copyToClipboard } from "../../lib/utils";
@@ -164,10 +164,69 @@ function Fold({ title, children, defaultOpen = false }: { title: string; childre
   );
 }
 
+/** Two incidents are about the same act when their action events are within
+ *  2 events of each other (one judge cites the tool call, the other its result). */
 function overlaps(a: unknown, b: unknown): boolean {
   if (!Array.isArray(a) || !Array.isArray(b)) return false;
-  const s = new Set(a);
-  return b.some((x) => s.has(x));
+  return a.some((x) => b.some((y) => typeof x === "number" && typeof y === "number" && Math.abs(x - y) <= 2));
+}
+
+/** Both judges' incidents on one grid, one line per act: a line with an empty
+ *  cell is something only one judge flagged. */
+function Overview({ judges, sel, onSelect }: { judges: JudgeRow[]; sel: Selection; onSelect: (judge: number, item: string) => void }) {
+  type Cell = { judge: number; item: string; inc: any };
+  const clusters: { first: number; cells: Cell[] }[] = [];
+  judges.forEach((j, ji) => (Array.isArray(j.incidents) ? j.incidents : []).forEach((inc: any, i: number) => {
+    const evs: number[] = Array.isArray(inc?.event_ids) ? inc.event_ids : [];
+    let c = clusters.find((cl) => cl.cells.some((x) => overlaps(x.inc?.event_ids, evs)));
+    if (!c) { c = { first: Infinity, cells: [] }; clusters.push(c); }
+    c.cells.push({ judge: ji, item: String(i), inc });
+    c.first = Math.min(c.first, ...evs);
+  }));
+  clusters.sort((a, b) => a.first - b.first);
+  return (
+    <div
+      className="grid items-center gap-x-2 gap-y-1 px-3 py-2 border-b border-zinc-200 dark:border-zinc-800 text-[12px]"
+      style={{ gridTemplateColumns: `max-content repeat(${Math.max(1, judges.length)}, minmax(0, 1fr))` }}
+    >
+      <span />
+      {judges.map((j, ji) => (
+        <span key={ji} className="flex min-w-0 flex-wrap items-center gap-1 border-l-[3px] pl-1.5" style={{ borderColor: JUDGE_COLORS[ji % JUDGE_COLORS.length] }}>
+          <span className="truncate font-semibold text-zinc-900 dark:text-zinc-100" title={String(j.judge_model)}>{judgeShort(String(j.judge_model ?? ""))}</span>
+          {j.verdict != null && <Chip className={verdictCls(j.verdict)}>{pretty(String(j.verdict))}</Chip>}
+        </span>
+      ))}
+      {clusters.map((c, ci) => (
+        <div key={ci} className="contents">
+          <span className="font-mono text-[11px] text-zinc-500">{Number.isFinite(c.first) ? `E${c.first}` : ""}</span>
+          {judges.map((_, ji) => {
+            const cells = c.cells.filter((x) => x.judge === ji);
+            if (!cells.length) return <span key={ji} className="pl-2 text-zinc-400">not flagged</span>;
+            return (
+              <span key={ji} className="flex min-w-0 flex-wrap gap-1">
+                {cells.map((x) => {
+                  const on = sel?.judge === x.judge && sel.item === x.item;
+                  const color = JUDGE_COLORS[ji % JUDGE_COLORS.length];
+                  return (
+                    <button
+                      key={x.item}
+                      onClick={() => onSelect(x.judge, x.item)}
+                      title="show this incident"
+                      className="min-w-0 truncate rounded border px-1.5 py-px text-left"
+                      style={{ borderColor: color, background: on ? color : "transparent", color: on ? "#fff" : undefined }}
+                    >
+                      #{x.item} {pretty(String(x.inc?.category ?? ""))}
+                      {x.inc?.severity != null && <span className="opacity-70"> · sev {String(x.inc.severity)}</span>}
+                    </button>
+                  );
+                })}
+              </span>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function TranscriptJudgePanel(p: PanelProps) {
@@ -222,6 +281,7 @@ export default function TranscriptJudgePanel(p: PanelProps) {
       </div>
 
       {judges.length === 0 && <div className="p-3 text-zinc-500">no judgment rows for this session</div>}
+      {judges.length > 0 && <Overview judges={judges} sel={p.sel} onSelect={p.onSelect} />}
       {judges.map((j, ji) => (
         <JudgeSection key={j.__idx} j={j} ji={ji} others={judges} p={p} />
       ))}
@@ -374,11 +434,14 @@ function IncidentCard(c: {
   const chipKeys = keys.filter((k) => !used.has(k) && (typeof inc[k] === "number" || typeof inc[k] === "boolean"
     || (typeof inc[k] === "string" && inc[k].length <= 32 && !inc[k].includes(" "))));
   const proseKeys = keys.filter((k) => !used.has(k) && !chipKeys.includes(k) && typeof inc[k] === "string" && inc[k]);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (c.selected) ref.current?.scrollIntoView({ block: "nearest" }); }, [c.selected]);
   const idColor = (k: string) =>
     k.startsWith("request") ? ROLE_COLORS.request! : k.startsWith("reaction") ? ROLE_COLORS.reaction! : "#71717a";
 
   return (
     <div
+      ref={ref}
       onClick={c.onSelect}
       data-incident-selected={c.selected || undefined}
       className={cn(

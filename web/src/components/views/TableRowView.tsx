@@ -2,6 +2,7 @@ import { useRef, useMemo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { api } from "../../lib/api";
 import { useViewerState } from "../../lib/state";
+import { useUrlSync } from "../../lib/url";
 import { useRowPage, usePublishNav } from "../../lib/rowPage";
 import { truncate, cn } from "../../lib/utils";
 
@@ -10,6 +11,7 @@ const PAGE = 200;
 export default function TableRowView() {
   const v = useViewerState();
   const parentRef = useRef<HTMLDivElement>(null);
+  const { setView } = useUrlSync();
 
   const { data: page } = useRowPage("table", { limit: PAGE });
 
@@ -33,7 +35,7 @@ export default function TableRowView() {
   return (
     <div className="h-full flex flex-col">
       <div className="px-3 py-1 border-b border-zinc-200 dark:border-zinc-800 flex items-center text-[11px] text-zinc-500">
-        showing {rows.length} of {page?.total_filtered ?? 0} rows · click a row to expand
+        showing {rows.length} of {page?.total_filtered ?? 0} rows · click a row to expand, its idx to open it as a sample
       </div>
       <div ref={parentRef} className="flex-1 overflow-auto font-mono text-[11px]">
         <div className="sticky top-0 z-10 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 flex">
@@ -60,7 +62,13 @@ export default function TableRowView() {
                   active && "bg-emerald-950/30",
                 )}
               >
-                <div className="w-14 shrink-0 px-2 py-1 text-zinc-400 dark:text-zinc-600">{idx}</div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setView("samples"); api.goto(idx); }}
+                  title="open this row in the sample view"
+                  className="w-14 shrink-0 px-2 py-1 text-left text-sky-700 dark:text-sky-400 hover:underline"
+                >
+                  {idx}
+                </button>
                 {cols.map((c) => (
                   <div key={c} className="px-2 py-1 truncate text-zinc-700 dark:text-zinc-300" style={{ width: 220 }}>
                     {fmtCell(r[c])}

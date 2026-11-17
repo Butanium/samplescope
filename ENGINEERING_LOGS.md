@@ -88,3 +88,29 @@ instance over a real research repo (read-only).
 - **Scan cost** was per-file Path + stat + sort over every file in the repo
   (79k), not the walk; extension check first. Remaining ~0.9 s is `os.walk`
   over ~10k dirs on the slow volume.
+
+## 2026-11-17 — transcript view (agent sessions + judge incidents)
+
+Built for a judge-validation pass over coding-agent sessions: read a long
+session, see where each LLM judge flagged an incident, label the judge.
+
+- New view kind `transcript` for a judgments JSONL (`session_id` + `incidents`
+  per row); events come from `{session_id}.json` under `--transcripts DIR`.
+  Kept the judgments file as the dataset so filter / sort / stats / SQL / the
+  CLI all apply to it unchanged; the only new backend is `routes/transcripts.py`.
+- Sessions reach thousands of events with 100 KB tool results: the list is
+  virtualized, results / thinking / system fold by default (a per-kind
+  open / folded / hidden select, pref `transcript.kindModes`), and the server
+  clips strings over 20k chars until the reader asks for the event whole.
+- Ctrl+F cannot see a virtualized list, hence the in-view "find in session"
+  (substring over text + tool input; matching events unfold and are listed even
+  if their kind is hidden). It searches the clipped text, so a hit past the
+  20k-char cut of one event is missed until that event is loaded whole.
+- Judges are matched across models by proximity of their action events
+  (within 2: one cites the call, the other its result), which feeds the
+  overview grid at the top of the panel and the "also <judge> #k" chip.
+- The table view's idx cell now opens the row as a sample (it was the only way
+  from the judgments table to a transcript without the header toggle).
+- Labels: append-only JSONL beside the dataset rather than `state.marks`, so
+  the project's scripts read them without the state DB and they version with
+  the results. `label: null` records a cleared label.

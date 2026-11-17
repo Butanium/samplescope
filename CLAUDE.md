@@ -191,6 +191,32 @@ aren't self-evident from the code.
   server-side but does not recurse, so `StringLeaf` is what expands *nested*
   ones — don't "simplify" either side away.
 
+- **Transcript view = judgments JSONL + per-session event files.** A JSONL whose
+  rows all carry a `session_id` and an `incidents` list (one row per session ×
+  judge model) detects as `transcript` (`_is_transcript_row`, checked before
+  chat). The row only *picks* the session: its events live in a separate
+  `{session_id}.json` (`{events: [{idx, kind, text, tool_name, tool_input,
+  subtype, …}]}`), resolved by `api/routes/transcripts.py` in the row's
+  `session_path`, then `sscope serve --transcripts DIR`
+  (`SAMPLESCOPE_TRANSCRIPTS_DIR`), then a `sessions/` dir next to the dataset.
+  `/api/transcripts/session` clips every string over `clip` chars (`clipped:
+  true`; `/event` returns one event whole when the reader expands it), and
+  `/judgments` returns *all* rows of that session so both judges show whichever
+  row is open. `TranscriptView.tsx` is the shell (queries, virtualized list,
+  URL focus, stepping, search), `transcriptEvents.tsx` the event blocks (tool
+  inputs rendered by field shape, not tool name: command / old+new diff /
+  written content / patch), `TranscriptJudgePanel.tsx` the right pane (incident
+  fields also rendered by shape, so a rubric revision needs no viewer change).
+  Focus lives in the URL as `inc=<sid8>~<judge_model>~<i>` (`n<i>` = a
+  considered-not-flagged entry) and `ev=<sid8>~<event idx>`; the session-id
+  prefix is what makes a value left from another row inert, so nothing has to
+  clear it on row change (a clear in the mirror raced the mount-time `goto`).
+  `TranscriptBody` is keyed on the *loaded* session id: the previous session
+  stays on screen while the next fetches, then fold/focus state resets. Human
+  labels are an append-only `human_labels.jsonl` next to the dataset, last line
+  per key wins (`_label_key`); they are deliberately not `state.marks`, because
+  the consumer is the project's own aggregation code reading a file.
+
 - **Navigation steps through visible order, not `row_idx ± 1`.**
   `web/src/lib/nav.ts` is a module-level cursor; views publish their
   `indexPage.indices` into it via `usePublishNav` (`web/src/lib/rowPage.ts`);

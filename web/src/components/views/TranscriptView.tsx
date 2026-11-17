@@ -42,6 +42,12 @@ export default function TranscriptView() {
   // j/k step through the visible (filtered / sorted) rows.
   const { data: indexPage } = useRowPage("transcript-index", { limit: NAV_LIMIT });
   usePublishNav(indexPage?.indices);
+  // A filter that excludes the open row: show the first row it keeps.
+  useEffect(() => {
+    if (!indexPage || indexPage.indices.length === 0) return;
+    if (!indexPage.indices.includes(v.row_idx)) api.goto(indexPage.indices[0]).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [indexPage?.indices.join(",")]);
 
   const rowQ = useQuery({
     queryKey: ["transcript-row", path, v.row_idx],
@@ -382,7 +388,7 @@ function TranscriptBody(p: {
             <span className="text-zinc-500 tabular-nums">
               {events.length} events{visible.length !== events.length ? ` (${visible.length} listed)` : ""}
             </span>
-            {Object.entries(stats).filter(([k]) => k !== "n_events").map(([k, val]) => (
+            {Object.entries(stats).filter(([k]) => k.startsWith("n_") && k !== "n_events").map(([k, val]) => (
               <span key={k} className="text-zinc-500 tabular-nums">{k.replace(/^n_/, "").replace(/_/g, " ")}: {String(val)}</span>
             ))}
           </div>
