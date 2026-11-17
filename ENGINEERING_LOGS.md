@@ -164,3 +164,12 @@ session, see where each LLM judge flagged an incident, label the judge.
   it with a `max_severity_firm = 3` chip after the judgments file was rewritten
   with that column renamed. Such a filter now matches nothing, its chip turns
   red, and the transcript view says no row matches.
+- The row filters also narrow the incidents the panel lists
+  (`incidentMatcher` in TranscriptView): `max_severity >= 3` keeps the
+  severity ≥ 3 incidents, `categories` has X keeps category X, the rest fold
+  under "N incidents outside the filters" and dim in the cross-judge grid;
+  `.` / `,` step through the kept ones. Column → incident field is by name
+  (drop `max_`/`min_`, singularize; a longer `max_<field>_…` falls back to
+  `<field>`, which shows a superset). The panel's row select keeps only the
+  two "to label" scopes: the label state is in another file, so it cannot be a
+  column filter; "with incidents" was dropped as the filter bar's job.

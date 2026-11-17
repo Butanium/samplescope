@@ -27,6 +27,8 @@ type PanelProps = {
   saveLabel: (rec: LabelRec) => void;
   sessionId: string;
   path: string;
+  /** The row filters, applied to one incident (null = no filter touches incidents). */
+  matchInc: ((inc: any) => boolean) | null;
   /** Pinned tab: controls that move the shared view are left out. */
   pinned: boolean;
   currentRowIdx: number;
@@ -264,14 +266,14 @@ function labelGlyph(labels: LabelRec[], model: string, idx: number): string {
   return l === "correct" ? "✓ " : l === "wrong" ? "✗ " : l === "unsure" ? "? " : "";
 }
 
-type Scope = "incidents" | "firm" | "open_firm" | "open";
-/** Row filters offered by the panel; each is applied as an SQL selection whose
- *  trailing comment names it (that is how the select reads it back). */
+type Scope = "open_firm" | "open";
+/** Rows still to label. Labels live in their own file, so this cannot be a
+ *  column filter: it is applied as an SQL selection whose trailing comment
+ *  names it (that is how the select reads it back). Filters on the judgments'
+ *  own columns (has incidents, severity ≥ n, …) are the filter bar's job. */
 const SCOPES: { key: Scope; label: string; rows: (d: ProgressData) => number[] }[] = [
-  { key: "incidents", label: "with incidents", rows: (d) => d.incident_rows },
-  { key: "firm", label: "with firm incidents", rows: (d) => d.firm_rows },
-  { key: "open_firm", label: "with unlabelled firm incidents", rows: (d) => d.unlabelled_firm_rows },
-  { key: "open", label: "with unlabelled incidents", rows: (d) => d.unlabelled_rows },
+  { key: "open_firm", label: "firm incidents to label", rows: (d) => d.unlabelled_firm_rows },
+  { key: "open", label: "incidents to label", rows: (d) => d.unlabelled_rows },
 ];
 type ProgressData = Awaited<ReturnType<typeof api.transcriptProgress>>;
 
@@ -301,14 +303,14 @@ function Progress({ path, currentRowIdx, pinned }: { path: string; currentRowIdx
         <span className="text-zinc-500"> · {data.labelled}/{data.incidents} all</span>
       </span>
       {!pinned && <label className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-        rows
+        only rows with
         <select
           value={scope}
           onChange={(e) => apply(e.target.value)}
           title="filter the rows (sessions × judge); the list is fixed when picked, pick again to refresh"
           className="rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-1 py-px text-[12px] text-zinc-800 dark:text-zinc-200"
         >
-          <option value="all">all</option>
+          <option value="all">(all rows)</option>
           {SCOPES.map((x) => (
             <option key={x.key} value={x.key}>{x.label} ({(x.rows(data) ?? []).length})</option>
           ))}
@@ -319,7 +321,10 @@ function Progress({ path, currentRowIdx, pinned }: { path: string; currentRowIdx
   );
 }
 
-function Overview({ judges, sel, onSelect, labels }: { judges: JudgeRow[]; sel: Selection; onSelect: (judge: number, item: string) => void; labels: LabelRec[] }) {
+function Overview({ judges, sel, onSelect, labels, matchInc }: {
+  judges: JudgeRow[]; sel: Selection; onSelect: (judge: number, item: string) => void; labels: LabelRec[];
+  matchInc: ((inc: any) => boolean) | null;
+}) {
   type Cell = { judge: number; item: string; inc: any };
   const cells: Cell[] = judges.flatMap((j, ji) =>
     (Array.isArray(j.incidents) ? j.incidents : []).map((inc: any, i: number) => ({ judge: ji, item: String(i), inc })));
@@ -366,7 +371,10 @@ function Overview({ judges, sel, onSelect, labels }: { judges: JudgeRow[]; sel: 
                       key={x.item}
                       onClick={() => onSelect(x.judge, x.item)}
                       title="show this incident"
-                      className="flex min-w-0 max-w-full items-center rounded border px-1.5 py-px text-left"
+                      className={cn(
+                        "flex min-w-0 max-w-full items-center rounded border px-1.5 py-px text-left",
+                        matchInc && !matchInc(x.inc) && !on && "opacity-40",
+                      )}
                       style={{ borderColor: color, background: on ? color : "transparent", color: on ? "#fff" : undefined }}
                     >
                       <span className="min-w-0 truncate">
@@ -452,7 +460,7 @@ export default function TranscriptJudgePanel(p: PanelProps) {
       </div>
 
       {judges.length === 0 && <div className="p-3 text-zinc-500">no judgment rows for this session</div>}
-      {judges.length > 0 && <Overview judges={judges} sel={p.sel} onSelect={p.onSelect} labels={labels} />}
+      {judges.length > 0 && <Overview judges={judges} sel={p.sel} onSelect={p.onSelect} labels={labels} matchInc={p.matchInc} />}
       {judges.map((j, ji) => (
         <JudgeSection key={j.__idx} j={j} ji={ji} others={judges} p={p} />
       ))}
@@ -471,6 +479,46 @@ function JudgeSection({ j, ji, others, p }: { j: JudgeRow; ji: number; others: J
   const extra = Object.keys(j).filter((k) => !ROW_HIDDEN.has(k) && (typeof j[k] !== "object" || j[k] === null));
   const labelOf = (kind: string, idx: number) =>
     p.labels.find((l) => l.kind === kind && l.judge_model === model && l[`${kind}_idx`] === idx);
+
+  const card = (i: number) => {
+    const inc = incidents[i];
+    const item = String(i);
+    const selected = p.sel?.judge === ji && p.sel.item === item;
+    const lab = labelOf("incident", i);
+    const also = others.flatMap((o, oi) => {
+      if (oi === ji) return [];
+      const hits = (Array.isArray(o.incidents) ? o.incidents : []).flatMap((x: any, xi: number) =>
+        overlaps(x?.event_ids, inc?.event_ids) ? [`#${xi}`] : []);
+      return hits.length ? [`${judgeShort(String(o.judge_model))} ${hits.join(" ")}`] : [];
+    });
+    return (
+      <IncidentCard
+        key={i}
+        title={`#${i}`}
+        inc={inc}
+        color={color}
+        selected={selected}
+        onSelect={() => p.onSelect(ji, item)}
+        onSelectEvent={p.onSelectEvent}
+        link={() => p.linkFor(ji, item)}
+        agreement={others.length > 1 ? (also.length ? `also ${also.join(", ")}` : `only ${judgeShort(model)}`) : null}
+        agreed={also.length > 0}
+        label={lab}
+        hints={["a real overeager action", "not overeager, or misdescribed", "can't tell"]}
+        onLabel={(label, note) =>
+          p.saveLabel({
+            kind: "incident", session_id: p.sessionId, judge_model: model,
+            rubric_version: j.rubric_version ?? null, incident_idx: i,
+            event_ids: inc?.event_ids ?? [], category: inc?.category ?? null,
+            severity: inc?.severity ?? null, label, note,
+          })}
+      />
+    );
+  };
+  // The row filters also narrow the incidents listed (the selected one always shows).
+  const visible = (i: number) => !p.matchInc || p.matchInc(incidents[i]) || (p.sel?.judge === ji && p.sel.item === String(i));
+  const shown = incidents.map((_, i) => i).filter(visible);
+  const hidden = incidents.map((_, i) => i).filter((i) => !visible(i));
 
   return (
     <section className="border-b border-zinc-200 dark:border-zinc-800">
@@ -505,42 +553,20 @@ function JudgeSection({ j, ji, others, p }: { j: JudgeRow; ji: number; others: J
           <Prose label="judge's own note" text={j.thought_of_the_rater} />
         )}
 
-        {incidents.map((inc, i) => {
-          const item = String(i);
-          const selected = p.sel?.judge === ji && p.sel.item === item;
-          const lab = labelOf("incident", i);
-          const also = others.flatMap((o, oi) => {
-            if (oi === ji) return [];
-            const hits = (Array.isArray(o.incidents) ? o.incidents : []).flatMap((x: any, xi: number) =>
-              overlaps(x?.event_ids, inc?.event_ids) ? [`#${xi}`] : []);
-            return hits.length ? [`${judgeShort(String(o.judge_model))} ${hits.join(" ")}`] : [];
-          });
-          return (
-            <IncidentCard
-              key={i}
-              title={`#${i}`}
-              inc={inc}
-              color={color}
-              selected={selected}
-              onSelect={() => p.onSelect(ji, item)}
-              onSelectEvent={p.onSelectEvent}
-              link={() => p.linkFor(ji, item)}
-              agreement={others.length > 1 ? (also.length ? `also ${also.join(", ")}` : `only ${judgeShort(model)}`) : null}
-              agreed={also.length > 0}
-              label={lab}
-              hints={["a real overeager action", "not overeager, or misdescribed", "can't tell"]}
-              onLabel={(label, note) =>
-                p.saveLabel({
-                  kind: "incident", session_id: p.sessionId, judge_model: model,
-                  rubric_version: j.rubric_version ?? null, incident_idx: i,
-                  event_ids: inc?.event_ids ?? [], category: inc?.category ?? null,
-                  severity: inc?.severity ?? null, label, note,
-                })}
-            />
-          );
-        })}
+        {shown.length < incidents.length && (
+          <div className="text-[12px] text-zinc-600 dark:text-zinc-400">
+            {shown.length} of {incidents.length} incidents match the filters
+          </div>
+        )}
+        {shown.map(card)}
+        {hidden.length > 0 && (
+          <Fold title={`${hidden.length} incident${hidden.length === 1 ? "" : "s"} outside the filters`}>
+            <div className="space-y-2">{hidden.map(card)}</div>
+          </Fold>
+        )}
 
         {considered.length > 0 && (
+
           <div className="space-y-1.5 pt-1">
             <div className="text-[10.5px] font-semibold uppercase tracking-wider text-zinc-500">
               considered, not flagged ({considered.length})

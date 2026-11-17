@@ -10,7 +10,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronLeft, ChevronRight, ExternalLink, Pin, Search } from "lucide-react";
 import { api } from "../../lib/api";
 import { useViewerState } from "../../lib/state";
-import { useUrlSync } from "../../lib/url";
+import { parseComparison, useUrlSync, type FilterTriple } from "../../lib/url";
 import { usePref } from "../../lib/prefs";
 import { useRowPage, usePublishNav } from "../../lib/rowPage";
 import { cn, copyToClipboard } from "../../lib/utils";
@@ -120,6 +120,50 @@ export default function TranscriptView() {
       pinned={!!pinned}
     />
   );
+}
+
+/**
+ * The row filters, read as filters on single incidents, so the panel lists the
+ * incidents that made the row match. A row column maps to an incident field by
+ * name: itself, minus a `max_` / `min_` prefix (`max_severity` → `severity`;
+ * a longer suffix falls back to the field it starts with), or its singular
+ * (`categories` → `category`). Filters on other columns are left out.
+ */
+function incidentMatcher(filters: FilterTriple[], judges: JudgeRow[]): ((inc: any) => boolean) | null {
+  const fields = new Set<string>();
+  judges.forEach((j) => (Array.isArray(j.incidents) ? j.incidents : []).forEach((inc: any) => {
+    if (inc && typeof inc === "object") Object.keys(inc).forEach((k) => fields.add(k));
+  }));
+  const tests: ((inc: any) => boolean)[] = [];
+  for (const [col, text, mode] of filters) {
+    if (!col) continue;
+    const base = col.replace(/^(max|min)_/, "");
+    let field = [col, base, base.replace(/ies$/, "y"), base.replace(/s$/, "")].find((c) => fields.has(c));
+    if (!field && base !== col) {
+      field = [...fields].filter((f) => base.startsWith(f + "_")).sort((a, b) => b.length - a.length)[0];
+    }
+    if (!field) continue;
+    const f = field;
+    if (mode === "cmp") {
+      const c = parseComparison(text);
+      if (!c) continue;
+      tests.push((inc) => {
+        const x = Number(inc?.[f]);
+        return c.op === ">=" ? x >= c.value : c.op === "<=" ? x <= c.value : c.op === ">" ? x > c.value
+          : c.op === "<" ? x < c.value : c.op === "!=" ? x !== c.value : x === c.value;
+      });
+    } else if (mode === "exact") {
+      tests.push((inc) => String(inc?.[f]) === text);
+    } else if (mode === "text") {
+      tests.push((inc) => String(inc?.[f] ?? "").toLowerCase().includes(text.toLowerCase()));
+    } else {
+      try {
+        const re = new RegExp(text);
+        tests.push((inc) => re.test(String(inc?.[f] ?? "")));
+      } catch { /* invalid regex: the server ignores it too */ }
+    }
+  }
+  return tests.length ? (inc) => tests.every((t) => t(inc)) : null;
 }
 
 function ids(x: unknown): number[] {
@@ -319,14 +363,21 @@ function TranscriptBody(p: {
     if (next != null) jumpTo(visible[next].idx);
   };
   const humanIdx = useMemo(() => visible.filter((e) => e.kind === "user").map((e) => e.idx), [visible]);
+  const filtersKey = JSON.stringify(url.filters);
+  const matchInc = useMemo(
+    () => (p.pinned ? null : incidentMatcher(url.filters, judges)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filtersKey, judges, p.pinned],
+  );
+  // Stepping goes through the incidents the filters keep.
   const incidentOrder = useMemo(() => {
     const out: { judge: number; item: string; first: number }[] = [];
-    judges.forEach((j, ji) => (Array.isArray(j.incidents) ? j.incidents : []).forEach((_: any, i: number) => {
+    judges.forEach((j, ji) => (Array.isArray(j.incidents) ? j.incidents : []).forEach((inc: any, i: number) => {
       const first = firstEventOf(ji, String(i));
-      if (first != null) out.push({ judge: ji, item: String(i), first });
+      if (first != null && (!matchInc || matchInc(inc))) out.push({ judge: ji, item: String(i), first });
     }));
     return out.sort((a, b) => a.first - b.first || a.judge - b.judge);
-  }, [judges, firstEventOf]);
+  }, [judges, firstEventOf, matchInc]);
   const stepIncident = (dir: 1 | -1) => {
     if (!incidentOrder.length) return;
     const cur = sel ? incidentOrder.findIndex((x) => x.judge === sel.judge && x.item === sel.item) : -1;
@@ -574,6 +625,7 @@ function TranscriptBody(p: {
           saveLabel={saveLabel}
           sessionId={sid}
           path={path}
+          matchInc={matchInc}
           pinned={p.pinned}
           currentRowIdx={p.currentRowIdx}
         />
