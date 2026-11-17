@@ -32,6 +32,9 @@ export function useRowPage(
       v.filters,
       v.sort_column,
       v.sort_desc,
+      // The server intersects reads with the applied SQL selection.
+      v.sql_mode,
+      v.sql_query,
       offset,
       limit,
     ],
@@ -73,6 +76,8 @@ export function useRowFeed(name: string, pageSize: number, enabled = true) {
       v.filters,
       v.sort_column,
       v.sort_desc,
+      v.sql_mode,
+      v.sql_query,
       pageSize,
     ],
     initialPageParam: 0,

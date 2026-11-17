@@ -221,11 +221,13 @@ def label_progress(path: str, firm: str = "severity>=3,out_of_scope>=2") -> dict
         if l.get("kind") == "incident" and l.get("label")
     }
     total = {"incidents": 0, "labelled": 0, "firm": 0, "firm_labelled": 0}
+    incident_rows: list[int] = []
+    firm_rows: list[int] = []
     unlabelled_rows: list[int] = []
     unlabelled_firm_rows: list[int] = []
     for i, r in enumerate(_read_jsonl(p)):
         incidents = r.get("incidents") if isinstance(r.get("incidents"), list) else []
-        open_any = open_firm = False
+        open_any = open_firm = has_firm = False
         for k, inc in enumerate(incidents):
             inc = inc if isinstance(inc, dict) else {}
             is_firm = all(isinstance(inc.get(key), (int, float)) and inc[key] >= n for key, n in terms)
@@ -234,11 +236,17 @@ def label_progress(path: str, firm: str = "severity>=3,out_of_scope>=2") -> dict
             total["labelled"] += done
             total["firm"] += is_firm
             total["firm_labelled"] += is_firm and done
+            has_firm = has_firm or is_firm
             open_any = open_any or not done
             open_firm = open_firm or (is_firm and not done)
+        if incidents:
+            incident_rows.append(i)
+        if has_firm:
+            firm_rows.append(i)
         if open_any:
             unlabelled_rows.append(i)
         if open_firm:
             unlabelled_firm_rows.append(i)
     return {**total, "firm_rule": " and ".join(f"{k} ≥ {n:g}" for k, n in terms),
+            "incident_rows": incident_rows, "firm_rows": firm_rows,
             "unlabelled_rows": unlabelled_rows, "unlabelled_firm_rows": unlabelled_firm_rows}

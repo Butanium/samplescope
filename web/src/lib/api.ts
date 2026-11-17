@@ -70,6 +70,7 @@ export const api = {
   transcriptProgress: (path: string) =>
     j<{
       incidents: number; labelled: number; firm: number; firm_labelled: number; firm_rule: string;
+      incident_rows: number[]; firm_rows: number[];
       unlabelled_rows: number[]; unlabelled_firm_rows: number[];
     }>(`/api/transcripts/progress?${new URLSearchParams({ path })}`),
   addTranscriptLabel: (path: string, label: Record<string, any>) =>

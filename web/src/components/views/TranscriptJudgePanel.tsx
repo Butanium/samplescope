@@ -195,25 +195,35 @@ function labelGlyph(labels: LabelRec[], model: string, idx: number): string {
   return l === "correct" ? "✓ " : l === "wrong" ? "✗ " : l === "unsure" ? "? " : "";
 }
 
-const MARK = { firm: "-- unlabelled firm incidents", any: "-- unlabelled incidents" };
+type Scope = "incidents" | "firm" | "open_firm" | "open";
+/** Row filters offered by the panel; each is applied as an SQL selection whose
+ *  trailing comment names it (that is how the select reads it back). */
+const SCOPES: { key: Scope; label: string; rows: (d: ProgressData) => number[] }[] = [
+  { key: "incidents", label: "with incidents", rows: (d) => d.incident_rows },
+  { key: "firm", label: "with firm incidents", rows: (d) => d.firm_rows },
+  { key: "open_firm", label: "with unlabelled firm incidents", rows: (d) => d.unlabelled_firm_rows },
+  { key: "open", label: "with unlabelled incidents", rows: (d) => d.unlabelled_rows },
+];
+type ProgressData = Awaited<ReturnType<typeof api.transcriptProgress>>;
 
-/** Labelled / total counts for the open file, and a row filter down to what
- *  still needs a label (applied as an SQL selection, so it is in the URL). */
+/** Labelled / total counts for the open file, and a row filter (sessions with
+ *  incidents, or with incidents still to label), applied as an SQL selection
+ *  so it is in the URL. */
 function Progress({ path, currentRowIdx }: { path: string; currentRowIdx: number }) {
   const v = useViewerState();
   const { data } = useQuery({ queryKey: ["transcript-progress", path], queryFn: () => api.transcriptProgress(path) });
   if (!data) return null;
   const q = v.sql_mode === "selection" ? (v.sql_query ?? "") : "";
-  const scope = q.endsWith(MARK.firm) ? "firm" : q.endsWith(MARK.any) ? "any" : q ? "custom" : "all";
+  const scope = SCOPES.find((x) => q.endsWith(`-- ${x.label}`))?.key ?? (q ? "custom" : "all");
   const apply = async (next: string) => {
-    if (next === "all") {
+    const sc = SCOPES.find((x) => x.key === next);
+    if (!sc) {
       await api.sqlApply("off");
       await api.goto(currentRowIdx);
       return;
     }
-    const rows = next === "firm" ? data.unlabelled_firm_rows : data.unlabelled_rows;
-    const list = rows.length ? rows.join(",") : "-1";
-    await api.sqlApply("selection", `SELECT __idx FROM t WHERE __idx IN (${list}) ${next === "firm" ? MARK.firm : MARK.any}`);
+    const rows = sc.rows(data);
+    await api.sqlApply("selection", `SELECT __idx FROM t WHERE __idx IN (${rows.length ? rows.join(",") : "-1"}) -- ${sc.label}`);
   };
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
@@ -226,12 +236,13 @@ function Progress({ path, currentRowIdx }: { path: string; currentRowIdx: number
         <select
           value={scope}
           onChange={(e) => apply(e.target.value)}
-          title="the list is fixed when picked, so a row stays while you label it; pick again to refresh"
+          title="filter the rows (sessions × judge); the list is fixed when picked, pick again to refresh"
           className="rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-1 py-px text-[12px] text-zinc-800 dark:text-zinc-200"
         >
           <option value="all">all</option>
-          <option value="firm">with unlabelled firm incidents ({data.unlabelled_firm_rows.length})</option>
-          <option value="any">with unlabelled incidents ({data.unlabelled_rows.length})</option>
+          {SCOPES.map((x) => (
+            <option key={x.key} value={x.key}>{x.label} ({x.rows(data).length})</option>
+          ))}
           {scope === "custom" && <option value="custom">custom SQL selection</option>}
         </select>
       </label>
