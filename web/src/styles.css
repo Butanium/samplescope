@@ -122,3 +122,8 @@ mark.viewer-hl.hl-join-r {
   100% { box-shadow: 0 0 0 3px rgb(56 189 248 / 0); }
 }
 .transcript-flash { animation: transcript-flash 1.4s ease-out; }
+
+/* Native dropdown lists ignore the page's colours: without this a transparent
+   <select> in dark mode opens a white list with light text. */
+.dark select { color-scheme: dark; }
+.dark select option { background-color: #18181b; color: #e4e4e7; }
