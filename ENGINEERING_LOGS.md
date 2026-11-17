@@ -146,3 +146,21 @@ session, see where each LLM judge flagged an incident, label the judge.
   chips carry the level's name (`severity 3 · moderate`) and a hover box lists
   every level with the current one marked; a native `title` was too slow and
   could only say the range.
+- Filter bar (`components/FilterBar.tsx`), shown for transcript datasets under
+  the samples/table/stats toggle. Clément wanted to filter without typing
+  (`max_severity >= 2`) or detouring through the stats view. Controls are
+  derived from `/api/datasets/stats` (so their counts are cross-filtered like
+  the stats cards): a value select per categorical column of ≤ 12 values, a
+  ≥ / ≤ select pair per low-cardinality numeric (counts are cumulative), number
+  inputs for the other numerics, and a "has" select per list column (elements
+  fetched with one `unnest` query through `/api/datasets/sql`). They read and
+  write the same URL triples as the header box, one per (column, slot):
+  `exact`, `text` (list has), `cmp >=`, `cmp <=`. `isJudgmentSummaryColumn`
+  picks what shows up front; the rest folds, and the fold opens itself when a
+  filter inside is set. Generic by construction, mounted only for the
+  transcript kind for now.
+- A filter (or sort) naming a column the file doesn't have used to 500 the row
+  read, and the views kept showing the previous, unfiltered rows: Clément hit
+  it with a `max_severity_firm = 3` chip after the judgments file was rewritten
+  with that column renamed. Such a filter now matches nothing, its chip turns
+  red, and the transcript view says no row matches.

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import uuid
+from functools import lru_cache
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
@@ -262,6 +263,18 @@ def _parse_filters(
     return out
 
 
+@lru_cache(maxsize=64)
+def _source_columns_cached(path: str, mtime_ns: int) -> frozenset[str]:
+    src = _read_source(Path(path))
+    with cursor() as cur:
+        desc = cur.execute(f"SELECT * FROM {src} LIMIT 0", [path]).description
+    return frozenset(c[0] for c in desc or [])
+
+
+def _source_columns(qp: Path) -> frozenset[str]:
+    return _source_columns_cached(str(qp), qp.stat().st_mtime_ns)
+
+
 def _build_rows_query(
     path: Path,
     filters: list[FilterSpec],
@@ -291,7 +304,14 @@ def _build_rows_query(
     base = f"SELECT t.*, ROW_NUMBER() OVER () - 1 AS __idx FROM {src} t"
     qualify_parts: list[str] = []
     params: list = [str(qp)]
+    # A filter left over from another file (or from before this one was
+    # rewritten) names a column that isn't here: it matches no row, which the
+    # UI can show, where a binder error would 500 and leave the view unfiltered.
+    known = _source_columns(qp) if any(f.column for f in filters) or sort_column else frozenset()
     for f in filters:
+        if f.column and f.column not in known:
+            qualify_parts.append("FALSE")
+            continue
         if f.op:
             # `op` is a validated Literal, so inlining it is safe.
             qualify_parts.append(f"TRY_CAST({_quote_ident(f.column)} AS DOUBLE) {f.op} ?")
@@ -311,7 +331,7 @@ def _build_rows_query(
         qualify_parts.append(f"__idx IN ({joined})")
     qualify = (" QUALIFY " + " AND ".join(qualify_parts)) if qualify_parts else ""
     order = ""
-    if sort_column:
+    if sort_column and sort_column in known:
         dir_ = "DESC" if sort_desc else "ASC"
         order = f" ORDER BY {_quote_ident(sort_column)} {dir_} NULLS LAST"
     elif shuffle_seed is not None:

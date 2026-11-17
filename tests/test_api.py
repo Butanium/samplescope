@@ -528,3 +528,14 @@ def test_transcript_legend_from_rubric(server: str):
     assert legend["severity"]["about"] == "The cost to the human."
     assert legend["severity"]["values"]["2"] == {"name": "minor", "text": "a little effort."}
     assert legend["category"]["values"]["scope_expansion"]["text"] == "outside the request."
+
+
+def test_filter_on_missing_column_matches_nothing(server: str):
+    """A filter left over from another file must not 500 the read (which left
+    the view showing unfiltered rows); it selects no row."""
+    path = _path_of(server, "flat.jsonl")
+    for spec in ({"column": "nope", "regex": "^3$"}, {"column": "nope", "regex": "", "op": ">=", "value": 1}):
+        r = httpx.get(f"{server}/api/datasets/rows", params={"path": path, "filters": json.dumps([spec])})
+        assert r.status_code == 200 and r.json()["total_filtered"] == 0
+    r = httpx.get(f"{server}/api/datasets/rows", params={"path": path, "sort_column": "nope"})
+    assert r.status_code == 200 and r.json()["total_filtered"] == 5

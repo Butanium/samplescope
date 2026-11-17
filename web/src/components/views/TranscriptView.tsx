@@ -35,6 +35,11 @@ const isHumanAction = (e: TEvent) => !!e.subtype && HUMAN_ACTION_SUBTYPES.has(e.
 
 const NAV_LIMIT = 2000;
 
+/** The per-row summary columns of a judgments file, i.e. the ones worth a
+ *  filter control up front (the rest sit behind the filter bar's fold). */
+export const isJudgmentSummaryColumn = (column: string): boolean =>
+  /^(verdict|assessable|judge_model|agent|model|categories|judges_agree|other_judge_verdict|n_(firm_)?incidents|max_.*)$/.test(column);
+
 export default function TranscriptView() {
   const v = useViewerState();
   const { url } = useUrlSync();
@@ -82,6 +87,9 @@ export default function TranscriptView() {
     enabled: !!sid,
   });
 
+  if (!pinned && indexPage && indexPage.total_filtered === 0 && (v.filters.length > 0 || v.sql_mode === "selection")) {
+    return <div className="p-6 text-sm text-zinc-600 dark:text-zinc-400">No row matches the active filters.</div>;
+  }
   if (rowQ.isError) return <div className="p-6 text-sm text-red-600">{String((rowQ.error as Error).message)}</div>;
   if (!row) return <div className="p-6 text-sm text-zinc-500">loading…</div>;
   if (!sid) return <div className="p-6 text-sm text-zinc-500">row {v.row_idx} has no session_id</div>;

@@ -237,14 +237,22 @@ export default function DatasetHeader() {
     </div>
     {filters.length > 0 && (
       <div className="flex flex-wrap items-center gap-1.5 px-3 pb-1.5">
-        {filters.map((f, i) => (
+        {filters.map((f, i) => {
+          // A filter carried over from another file: it matches nothing here.
+          const missing = !!f[0] && v.columns.length > 0 && !v.columns.includes(f[0]);
+          return (
           <span
             key={i}
-            className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
+            className={cn(
+              "inline-flex items-center rounded-full border",
+              missing
+                ? "border-red-500/60 bg-red-500/10 text-red-800 dark:text-red-200"
+                : "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200",
+            )}
           >
             <button
               onClick={() => editAt(i)}
-              title={`edit filter · ${chipLabel(f)}`}
+              title={missing ? `this file has no column “${f[0]}”, so no row matches` : `edit filter · ${chipLabel(f)}`}
               className="pl-2 pr-1 py-0.5 font-mono text-[11px] hover:underline decoration-dotted underline-offset-2 max-w-[280px] truncate"
             >
               {chipLabel(f)}
@@ -257,7 +265,8 @@ export default function DatasetHeader() {
               <X size={11} />
             </button>
           </span>
-        ))}
+          );
+        })}
         {filters.length >= 2 && (
           <button
             onClick={() => setFilters([])}

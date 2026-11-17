@@ -8,7 +8,8 @@ import MetricsView from "./views/MetricsView";
 import EvalLogView from "./views/EvalLogView";
 import JsonTreeView from "./views/JsonTreeView";
 import MarkdownView from "./views/MarkdownView";
-import TranscriptView from "./views/TranscriptView";
+import TranscriptView, { isJudgmentSummaryColumn } from "./views/TranscriptView";
+import FilterBar from "./FilterBar";
 import StatsView from "./views/StatsView";
 import SqlView from "./views/SqlView";
 import ChatDrawer from "./ChatDrawer";
@@ -318,6 +319,7 @@ function ViewSwitch() {
           <ViewToggleButton active={active === "stats"} onClick={() => setView("stats")} icon={<PieChart size={12} />} label="stats" />
         )}
       </div>
+      {v.view_kind === "transcript" && <FilterBar primary={isJudgmentSummaryColumn} />}
       <div className="flex-1 min-h-0">{render()}</div>
     </div>
   );
