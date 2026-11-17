@@ -350,7 +350,8 @@ function TranscriptBody(p: {
     const has = missedIds.includes(idx);
     const next = has ? missedIds.filter((x) => x !== idx) : [...missedIds, idx].sort((a, b) => a - b);
     saveLabel({
-      kind: "session", session_id: sid, note: sessionLabel.note ?? "",
+      kind: "session", session_id: sid, rubric_version: judges[0]?.rubric_version ?? null,
+      note: sessionLabel.note ?? "",
       missed: has ? !!sessionLabel.missed : true, missed_event_ids: next,
     });
   };

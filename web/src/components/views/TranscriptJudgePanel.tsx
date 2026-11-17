@@ -239,7 +239,7 @@ export default function TranscriptJudgePanel(p: PanelProps) {
   useEffect(() => setNote(session.note ?? ""), [session.note, p.sessionId]);
   const saveSession = (patch: LabelRec) =>
     p.saveLabel({
-      kind: "session", session_id: p.sessionId,
+      kind: "session", session_id: p.sessionId, rubric_version: judges[0]?.rubric_version ?? null,
       missed: !!session.missed, missed_event_ids: missedIds, note: session.note ?? "",
       ...patch,
     });
